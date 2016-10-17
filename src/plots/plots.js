@@ -407,15 +407,6 @@ plots.supplyDefaults = function(gd) {
 
     plots.doAutoMargin(gd);
 
-    // can't quite figure out how to get rid of this... each axis needs
-    // a reference back to the DOM object for just a few purposes
-    var axList = Plotly.Axes.list(gd);
-    for(i = 0; i < axList.length; i++) {
-        var ax = axList[i];
-        ax._gd = gd;
-        ax.setScale();
-    }
-
     // relink / initialize subplot axis objects
     plots.linkSubplots(newFullData, newFullLayout, oldFullData, oldFullLayout);
 

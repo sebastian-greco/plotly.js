@@ -65,8 +65,7 @@ module.exports = function setConvert(ax) {
 
     // set scaling to pixels
     ax.setScale = function(usePrivateRange) {
-        var gs = ax._gd._fullLayout._size,
-            i;
+        var gs = ax._fullLayout._size;
 
         // TODO cleaner way to handle this case
         if(!ax._categories) ax._categories = [];
@@ -74,7 +73,7 @@ module.exports = function setConvert(ax) {
         // make sure we have a domain (pull it in from the axis
         // this one is overlaying if necessary)
         if(ax.overlaying) {
-            var ax2 = axisIds.getFromId(ax._gd, ax.overlaying);
+            var ax2 = axisIds.getFromId({ _fullLayout: ax._fullLayout }, ax.overlaying);
             ax.domain = ax2.domain;
         }
 
@@ -89,7 +88,8 @@ module.exports = function setConvert(ax) {
         if(!range || range.length !== 2 || range[0] === range[1]) {
             range = [-1, 1];
         }
-        for(i = 0; i < 2; i++) {
+
+        for(var i = 0; i < 2; i++) {
             if(!isNumeric(range[i])) {
                 range[i] = isNumeric(range[1 - i]) ?
                     (range[1 - i] * (i ? 10 : 0.1)) :
@@ -119,10 +119,7 @@ module.exports = function setConvert(ax) {
         }
 
         if(!isFinite(ax._m) || !isFinite(ax._b)) {
-            Lib.notifier(
-                'Something went wrong with axis scaling',
-                'long');
-            ax._gd._replotting = false;
+            Lib.error('Something went wrong with axis scaling');
             throw new Error('axis scaling');
         }
     };

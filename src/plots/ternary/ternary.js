@@ -48,7 +48,6 @@ proto.init = function(fullLayout) {
 proto.plot = function(ternaryData, fullLayout) {
     var _this = this,
         ternaryLayout = fullLayout[_this.id],
-        graphSize = fullLayout._size,
         i;
 
     if(Lib.getPlotDiv(_this.plotContainer.node()) !== _this.graphDiv) {
@@ -60,7 +59,7 @@ proto.plot = function(ternaryData, fullLayout) {
         _this.makeFramework();
     }
 
-    _this.adjustLayout(ternaryLayout, graphSize);
+    _this.adjustLayout(ternaryLayout, fullLayout);
 
     var traceHashOld = _this.traceHash;
     var traceHash = {};
@@ -176,13 +175,14 @@ proto.makeFramework = function() {
 
 var w_over_h = Math.sqrt(4 / 3);
 
-proto.adjustLayout = function(ternaryLayout, graphSize) {
+proto.adjustLayout = function(ternaryLayout, fullLayout) {
     var _this = this,
         domain = ternaryLayout.domain,
         xDomainCenter = (domain.x[0] + domain.x[1]) / 2,
         yDomainCenter = (domain.y[0] + domain.y[1]) / 2,
         xDomain = domain.x[1] - domain.x[0],
         yDomain = domain.y[1] - domain.y[0],
+        graphSize = fullLayout._size,
         wmax = xDomain * graphSize.w,
         hmax = yDomain * graphSize.h,
         sum = ternaryLayout.sum,
@@ -222,7 +222,7 @@ proto.adjustLayout = function(ternaryLayout, graphSize) {
             xDomainCenter + xDomainFinal / 2
         ],
         _id: 'x',
-        _gd: _this.graphDiv
+        _fullLayout: fullLayout
     };
     setConvert(_this.xaxis);
     _this.xaxis.setScale();
@@ -235,7 +235,7 @@ proto.adjustLayout = function(ternaryLayout, graphSize) {
             yDomainCenter + yDomainFinal / 2
         ],
         _id: 'y',
-        _gd: _this.graphDiv
+        _fullLayout: fullLayout
     };
     setConvert(_this.yaxis);
     _this.yaxis.setScale();
@@ -257,7 +257,7 @@ proto.adjustLayout = function(ternaryLayout, graphSize) {
         _axislayer: _this.layers.aaxis,
         _gridlayer: _this.layers.agrid,
         _pos: 0, // _this.xaxis.domain[0] * graphSize.w,
-        _gd: _this.graphDiv,
+        _fullLayout: fullLayout,
         _id: 'y',
         _length: w,
         _gridpath: 'M0,0l' + h + ',-' + (w / 2)
@@ -275,7 +275,7 @@ proto.adjustLayout = function(ternaryLayout, graphSize) {
         _gridlayer: _this.layers.bgrid,
         _counteraxis: _this.aaxis,
         _pos: 0, // (1 - yDomain0) * graphSize.h,
-        _gd: _this.graphDiv,
+        _fullLayout: fullLayout,
         _id: 'x',
         _length: w,
         _gridpath: 'M0,0l-' + (w / 2) + ',-' + h
@@ -295,7 +295,7 @@ proto.adjustLayout = function(ternaryLayout, graphSize) {
         _gridlayer: _this.layers.cgrid,
         _counteraxis: _this.baxis,
         _pos: 0, // _this.xaxis.domain[1] * graphSize.w,
-        _gd: _this.graphDiv,
+        _fullLayout: fullLayout,
         _id: 'y',
         _length: w,
         _gridpath: 'M0,0l-' + h + ',' + (w / 2)

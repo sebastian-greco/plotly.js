@@ -145,6 +145,13 @@ module.exports = function supplyLayoutDefaults(layoutIn, layoutOut, fullData) {
 
         layoutOut[axName] = axLayoutOut;
 
+        // ...
+        layoutOut[axName]._input = layoutIn;
+
+        // ...
+        layoutOut[axName]._fullLayout = layoutOut;
+
+
         // so we don't have to repeat autotype unnecessarily,
         // copy an autotype back to layoutIn
         if(!layoutIn[axName] && axLayoutIn.type !== '-') {

@@ -548,7 +548,7 @@ function createMockAxis(fullLayout) {
         type: 'linear',
         showexponent: 'all',
         exponentformat: Axes.layoutAttributes.exponentformat.dflt,
-        _gd: { _fullLayout: fullLayout }
+        _fullLayout: fullLayout
     };
 
     Axes.setConvert(mockAxis);

@@ -52,7 +52,7 @@ exports.plot = function plotGl3d(gd) {
 
         // If Scene is not instantiated, create one!
         if(scene === undefined) {
-            initAxes(gd, sceneLayout);
+            initAxes(fullLayout, sceneLayout);
 
             scene = new Scene({
                 id: sceneId,
@@ -123,10 +123,10 @@ exports.cleanId = function cleanId(id) {
 
 exports.setConvert = require('./set_convert');
 
-function initAxes(gd, sceneLayout) {
+function initAxes(fullLayout, sceneLayout) {
     for(var j = 0; j < 3; ++j) {
         var axisName = axesNames[j];
 
-        sceneLayout[axisName]._gd = gd;
+        sceneLayout[axisName]._fullLayout = fullLayout;
     }
 }

@@ -188,7 +188,7 @@ module.exports = function draw(gd, id) {
         handleAxisPositionDefaults(cbAxisIn, cbAxisOut, coerce, axisOptions);
 
         cbAxisOut._id = 'y' + id;
-        cbAxisOut._gd = gd;
+        cbAxisOut._fullLayout = gd._fullLayout;
 
         // position can't go in through supplyDefaults
         // because that restricts it to [0,1]
