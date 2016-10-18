@@ -59,6 +59,7 @@ exports.register([
     require('./components/images'),
     require('./components/updatemenus'),
     require('./components/sliders'),
+    require('./components/breakpoints'),
     require('./components/rangeslider'),
     require('./components/rangeselector')
 ]);
