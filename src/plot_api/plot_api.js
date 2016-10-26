@@ -1822,13 +1822,11 @@ function _relayout(gd, aobj) {
         undoit[ai] = (pleaf === 'reverse') ? vi : p.get();
 
         // Setting width or height to null must reset the graph's width / height
-        // back to its initial value as listed in attribute declaration.
+        // back to its initial value as computed during the first pass in Plots.plotAutoSize.
         //
-        // We must manually set them back here, because we can't rely on
-        // Plots.plotAutoSize as it falls back to computing width / height values
-        // from the DOM which can have been changed by other relayout calls.
+        // To do so, we must manually set them back here using the _initialAutoSize cache.
         if(['width', 'height'].indexOf(ai) !== -1 && vi === null) {
-            gd._fullLayout[ai] = Plots.layoutAttributes[ai].dflt;
+            gd._fullLayout[ai] = gd._initialAutoSize[ai];
         }
         // check autorange vs range
         else if(pleafPlus.match(/^[xyz]axis[0-9]*\.range(\[[0|1]\])?$/)) {
