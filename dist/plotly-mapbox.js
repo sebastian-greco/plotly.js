@@ -1,9 +1,3 @@
-/**
-* plotly.js (mapbox) v1.19.2
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-* Licensed under the MIT license
-*/
 (function(f){if(typeof exports==="object"&&typeof module!=="undefined"){module.exports=f()}else if(typeof define==="function"&&define.amd){define([],f)}else{var g;if(typeof window!=="undefined"){g=window}else if(typeof global!=="undefined"){g=global}else if(typeof self!=="undefined"){g=self}else{g=this}g.Plotly = f()}})(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 'use strict';
 
@@ -234,6 +228,51 @@ module.exports = Plotly;
 module.exports = require('../src/traces/scattermapbox');
 
 },{"../src/traces/scattermapbox":421}],6:[function(require,module,exports){
+(function (global){
+'use strict';
+
+// compare and isBuffer taken from https://github.com/feross/buffer/blob/680e9e5e488f22aac27599a57dc844a6315928dd/index.js
+// original notice:
+
+/*!
+ * The buffer module from node.js, for the browser.
+ *
+ * @author   Feross Aboukhadijeh <feross@feross.org> <http://feross.org>
+ * @license  MIT
+ */
+function compare(a, b) {
+  if (a === b) {
+    return 0;
+  }
+
+  var x = a.length;
+  var y = b.length;
+
+  for (var i = 0, len = Math.min(x, y); i < len; ++i) {
+    if (a[i] !== b[i]) {
+      x = a[i];
+      y = b[i];
+      break;
+    }
+  }
+
+  if (x < y) {
+    return -1;
+  }
+  if (y < x) {
+    return 1;
+  }
+  return 0;
+}
+function isBuffer(b) {
+  if (global.Buffer && typeof global.Buffer.isBuffer === 'function') {
+    return global.Buffer.isBuffer(b);
+  }
+  return !!(b != null && b._isBuffer);
+}
+
+// based on node assert, original notice:
+
 // http://wiki.commonjs.org/wiki/Unit_Testing/1.0
 //
 // THIS IS NOT TESTED NOR LIKELY TO WORK OUTSIDE V8!
@@ -258,14 +297,36 @@ module.exports = require('../src/traces/scattermapbox');
 // ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-// when used in node, this will actually load the util module we depend on
-// versus loading the builtin util module as happens otherwise
-// this is a bug in node module loading as far as I am concerned
 var util = require('util/');
-
-var pSlice = Array.prototype.slice;
 var hasOwn = Object.prototype.hasOwnProperty;
-
+var pSlice = Array.prototype.slice;
+var functionsHaveNames = (function () {
+  return function foo() {}.name === 'foo';
+}());
+function pToString (obj) {
+  return Object.prototype.toString.call(obj);
+}
+function isView(arrbuf) {
+  if (isBuffer(arrbuf)) {
+    return false;
+  }
+  if (typeof global.ArrayBuffer !== 'function') {
+    return false;
+  }
+  if (typeof ArrayBuffer.isView === 'function') {
+    return ArrayBuffer.isView(arrbuf);
+  }
+  if (!arrbuf) {
+    return false;
+  }
+  if (arrbuf instanceof DataView) {
+    return true;
+  }
+  if (arrbuf.buffer && arrbuf.buffer instanceof ArrayBuffer) {
+    return true;
+  }
+  return false;
+}
 // 1. The assert module provides functions that throw
 // AssertionError's when particular conditions are not met. The
 // assert module must conform to the following interface.
@@ -277,6 +338,19 @@ var assert = module.exports = ok;
 //                             actual: actual,
 //                             expected: expected })
 
+var regex = /\s*function\s+([^\(\s]*)\s*/;
+// based on https://github.com/ljharb/function.prototype.name/blob/adeeeec8bfcc6068b187d7d9fb3d5bb1d3a30899/implementation.js
+function getName(func) {
+  if (!util.isFunction(func)) {
+    return;
+  }
+  if (functionsHaveNames) {
+    return func.name;
+  }
+  var str = func.toString();
+  var match = str.match(regex);
+  return match && match[1];
+}
 assert.AssertionError = function AssertionError(options) {
   this.name = 'AssertionError';
   this.actual = options.actual;
@@ -290,18 +364,16 @@ assert.AssertionError = function AssertionError(options) {
     this.generatedMessage = true;
   }
   var stackStartFunction = options.stackStartFunction || fail;
-
   if (Error.captureStackTrace) {
     Error.captureStackTrace(this, stackStartFunction);
-  }
-  else {
+  } else {
     // non v8 browsers so we can have a stacktrace
     var err = new Error();
     if (err.stack) {
       var out = err.stack;
 
       // try to strip useless frames
-      var fn_name = stackStartFunction.name;
+      var fn_name = getName(stackStartFunction);
       var idx = out.indexOf('\n' + fn_name);
       if (idx >= 0) {
         // once we have located the function frame
@@ -318,31 +390,25 @@ assert.AssertionError = function AssertionError(options) {
 // assert.AssertionError instanceof Error
 util.inherits(assert.AssertionError, Error);
 
-function replacer(key, value) {
-  if (util.isUndefined(value)) {
-    return '' + value;
-  }
-  if (util.isNumber(value) && !isFinite(value)) {
-    return value.toString();
-  }
-  if (util.isFunction(value) || util.isRegExp(value)) {
-    return value.toString();
-  }
-  return value;
-}
-
 function truncate(s, n) {
-  if (util.isString(s)) {
+  if (typeof s === 'string') {
     return s.length < n ? s : s.slice(0, n);
   } else {
     return s;
   }
 }
-
+function inspect(something) {
+  if (functionsHaveNames || !util.isFunction(something)) {
+    return util.inspect(something);
+  }
+  var rawname = getName(something);
+  var name = rawname ? ': ' + rawname : '';
+  return '[Function' +  name + ']';
+}
 function getMessage(self) {
-  return truncate(JSON.stringify(self.actual, replacer), 128) + ' ' +
+  return truncate(inspect(self.actual), 128) + ' ' +
          self.operator + ' ' +
-         truncate(JSON.stringify(self.expected, replacer), 128);
+         truncate(inspect(self.expected), 128);
 }
 
 // At present only the three keys mentioned above are used and
@@ -402,24 +468,23 @@ assert.notEqual = function notEqual(actual, expected, message) {
 // assert.deepEqual(actual, expected, message_opt);
 
 assert.deepEqual = function deepEqual(actual, expected, message) {
-  if (!_deepEqual(actual, expected)) {
+  if (!_deepEqual(actual, expected, false)) {
     fail(actual, expected, message, 'deepEqual', assert.deepEqual);
   }
 };
 
-function _deepEqual(actual, expected) {
+assert.deepStrictEqual = function deepStrictEqual(actual, expected, message) {
+  if (!_deepEqual(actual, expected, true)) {
+    fail(actual, expected, message, 'deepStrictEqual', assert.deepStrictEqual);
+  }
+};
+
+function _deepEqual(actual, expected, strict, memos) {
   // 7.1. All identical values are equivalent, as determined by ===.
   if (actual === expected) {
     return true;
-
-  } else if (util.isBuffer(actual) && util.isBuffer(expected)) {
-    if (actual.length != expected.length) return false;
-
-    for (var i = 0; i < actual.length; i++) {
-      if (actual[i] !== expected[i]) return false;
-    }
-
-    return true;
+  } else if (isBuffer(actual) && isBuffer(expected)) {
+    return compare(actual, expected) === 0;
 
   // 7.2. If the expected value is a Date object, the actual value is
   // equivalent if it is also a Date object that refers to the same time.
@@ -438,8 +503,22 @@ function _deepEqual(actual, expected) {
 
   // 7.4. Other pairs that do not both pass typeof value == 'object',
   // equivalence is determined by ==.
-  } else if (!util.isObject(actual) && !util.isObject(expected)) {
-    return actual == expected;
+  } else if ((actual === null || typeof actual !== 'object') &&
+             (expected === null || typeof expected !== 'object')) {
+    return strict ? actual === expected : actual == expected;
+
+  // If both values are instances of typed arrays, wrap their underlying
+  // ArrayBuffers in a Buffer each to increase performance
+  // This optimization requires the arrays to have the same type as checked by
+  // Object.prototype.toString (aka pToString). Never perform binary
+  // comparisons for Float*Arrays, though, since e.g. +0 === -0 but their
+  // bit patterns are not identical.
+  } else if (isView(actual) && isView(expected) &&
+             pToString(actual) === pToString(expected) &&
+             !(actual instanceof Float32Array ||
+               actual instanceof Float64Array)) {
+    return compare(new Uint8Array(actual.buffer),
+                   new Uint8Array(expected.buffer)) === 0;
 
   // 7.5 For all other Object pairs, including Array objects, equivalence is
   // determined by having the same number of owned properties (as verified
@@ -447,8 +526,22 @@ function _deepEqual(actual, expected) {
   // (although not necessarily the same order), equivalent values for every
   // corresponding key, and an identical 'prototype' property. Note: this
   // accounts for both named and indexed properties on Arrays.
+  } else if (isBuffer(actual) !== isBuffer(expected)) {
+    return false;
   } else {
-    return objEquiv(actual, expected);
+    memos = memos || {actual: [], expected: []};
+
+    var actualIndex = memos.actual.indexOf(actual);
+    if (actualIndex !== -1) {
+      if (actualIndex === memos.expected.indexOf(expected)) {
+        return true;
+      }
+    }
+
+    memos.actual.push(actual);
+    memos.expected.push(expected);
+
+    return objEquiv(actual, expected, strict, memos);
   }
 }
 
@@ -456,44 +549,44 @@ function isArguments(object) {
   return Object.prototype.toString.call(object) == '[object Arguments]';
 }
 
-function objEquiv(a, b) {
-  if (util.isNullOrUndefined(a) || util.isNullOrUndefined(b))
+function objEquiv(a, b, strict, actualVisitedObjects) {
+  if (a === null || a === undefined || b === null || b === undefined)
     return false;
-  // an identical 'prototype' property.
-  if (a.prototype !== b.prototype) return false;
   // if one is a primitive, the other must be same
-  if (util.isPrimitive(a) || util.isPrimitive(b)) {
+  if (util.isPrimitive(a) || util.isPrimitive(b))
     return a === b;
-  }
-  var aIsArgs = isArguments(a),
-      bIsArgs = isArguments(b);
+  if (strict && Object.getPrototypeOf(a) !== Object.getPrototypeOf(b))
+    return false;
+  var aIsArgs = isArguments(a);
+  var bIsArgs = isArguments(b);
   if ((aIsArgs && !bIsArgs) || (!aIsArgs && bIsArgs))
     return false;
   if (aIsArgs) {
     a = pSlice.call(a);
     b = pSlice.call(b);
-    return _deepEqual(a, b);
+    return _deepEqual(a, b, strict);
   }
-  var ka = objectKeys(a),
-      kb = objectKeys(b),
-      key, i;
+  var ka = objectKeys(a);
+  var kb = objectKeys(b);
+  var key, i;
   // having the same number of owned properties (keys incorporates
   // hasOwnProperty)
-  if (ka.length != kb.length)
+  if (ka.length !== kb.length)
     return false;
   //the same set of keys (although not necessarily the same order),
   ka.sort();
   kb.sort();
   //~~~cheap key test
   for (i = ka.length - 1; i >= 0; i--) {
-    if (ka[i] != kb[i])
+    if (ka[i] !== kb[i])
       return false;
   }
   //equivalent values for every corresponding key, and
   //~~~possibly expensive deep test
   for (i = ka.length - 1; i >= 0; i--) {
     key = ka[i];
-    if (!_deepEqual(a[key], b[key])) return false;
+    if (!_deepEqual(a[key], b[key], strict, actualVisitedObjects))
+      return false;
   }
   return true;
 }
@@ -502,10 +595,18 @@ function objEquiv(a, b) {
 // assert.notDeepEqual(actual, expected, message_opt);
 
 assert.notDeepEqual = function notDeepEqual(actual, expected, message) {
-  if (_deepEqual(actual, expected)) {
+  if (_deepEqual(actual, expected, false)) {
     fail(actual, expected, message, 'notDeepEqual', assert.notDeepEqual);
   }
 };
+
+assert.notDeepStrictEqual = notDeepStrictEqual;
+function notDeepStrictEqual(actual, expected, message) {
+  if (_deepEqual(actual, expected, true)) {
+    fail(actual, expected, message, 'notDeepStrictEqual', notDeepStrictEqual);
+  }
+}
+
 
 // 9. The strict equality assertion tests strict equality, as determined by ===.
 // assert.strictEqual(actual, expected, message_opt);
@@ -532,28 +633,46 @@ function expectedException(actual, expected) {
 
   if (Object.prototype.toString.call(expected) == '[object RegExp]') {
     return expected.test(actual);
-  } else if (actual instanceof expected) {
-    return true;
-  } else if (expected.call({}, actual) === true) {
-    return true;
   }
 
-  return false;
+  try {
+    if (actual instanceof expected) {
+      return true;
+    }
+  } catch (e) {
+    // Ignore.  The instanceof check doesn't work for arrow functions.
+  }
+
+  if (Error.isPrototypeOf(expected)) {
+    return false;
+  }
+
+  return expected.call({}, actual) === true;
+}
+
+function _tryBlock(block) {
+  var error;
+  try {
+    block();
+  } catch (e) {
+    error = e;
+  }
+  return error;
 }
 
 function _throws(shouldThrow, block, expected, message) {
   var actual;
 
-  if (util.isString(expected)) {
+  if (typeof block !== 'function') {
+    throw new TypeError('"block" argument must be a function');
+  }
+
+  if (typeof expected === 'string') {
     message = expected;
     expected = null;
   }
 
-  try {
-    block();
-  } catch (e) {
-    actual = e;
-  }
+  actual = _tryBlock(block);
 
   message = (expected && expected.name ? ' (' + expected.name + ').' : '.') +
             (message ? ' ' + message : '.');
@@ -562,7 +681,14 @@ function _throws(shouldThrow, block, expected, message) {
     fail(actual, expected, 'Missing expected exception' + message);
   }
 
-  if (!shouldThrow && expectedException(actual, expected)) {
+  var userProvidedMessage = typeof message === 'string';
+  var isUnwantedException = !shouldThrow && util.isError(actual);
+  var isUnexpectedException = !shouldThrow && actual && !expected;
+
+  if ((isUnwantedException &&
+      userProvidedMessage &&
+      expectedException(actual, expected)) ||
+      isUnexpectedException) {
     fail(actual, expected, 'Got unwanted exception' + message);
   }
 
@@ -576,15 +702,15 @@ function _throws(shouldThrow, block, expected, message) {
 // assert.throws(block, Error_opt, message_opt);
 
 assert.throws = function(block, /*optional*/error, /*optional*/message) {
-  _throws.apply(this, [true].concat(pSlice.call(arguments)));
+  _throws(true, block, error, message);
 };
 
 // EXTENSION! This is annoying to write outside this module.
-assert.doesNotThrow = function(block, /*optional*/message) {
-  _throws.apply(this, [false].concat(pSlice.call(arguments)));
+assert.doesNotThrow = function(block, /*optional*/error, /*optional*/message) {
+  _throws(false, block, error, message);
 };
 
-assert.ifError = function(err) { if (err) {throw err;}};
+assert.ifError = function(err) { if (err) throw err; };
 
 var objectKeys = Object.keys || function (obj) {
   var keys = [];
@@ -594,6 +720,7 @@ var objectKeys = Object.keys || function (obj) {
   return keys;
 };
 
+}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
 },{"util/":203}],7:[function(require,module,exports){
 // (c) Dean McNamee <dean@gmail.com>, 2012.
 //
@@ -20741,60 +20868,60 @@ var path = require('path');
 // readFileSync calls must be written out long-form for brfs.
 module.exports = {
   debug: {
-    fragmentSource: "#ifdef GL_ES\nprecision mediump float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\nuniform lowp vec4 u_color;\n\nvoid main() {\n    gl_FragColor = u_color;\n}\n",
-    vertexSource: "#ifdef GL_ES\nprecision highp float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\nattribute vec2 a_pos;\n\nuniform mat4 u_matrix;\n\nvoid main() {\n    gl_Position = u_matrix * vec4(a_pos, step(32767.0, a_pos.x), 1);\n}\n"
+    fragmentSource: "#ifdef GL_ES\r\nprecision mediump float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\nuniform lowp vec4 u_color;\r\n\r\nvoid main() {\r\n    gl_FragColor = u_color;\r\n}\r\n",
+    vertexSource: "#ifdef GL_ES\r\nprecision highp float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\nattribute vec2 a_pos;\r\n\r\nuniform mat4 u_matrix;\r\n\r\nvoid main() {\r\n    gl_Position = u_matrix * vec4(a_pos, step(32767.0, a_pos.x), 1);\r\n}\r\n"
   },
   fill: {
-    fragmentSource: "#ifdef GL_ES\nprecision mediump float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\n#pragma mapbox: define lowp vec4 color\n#pragma mapbox: define lowp float opacity\n\nvoid main() {\n    #pragma mapbox: initialize lowp vec4 color\n    #pragma mapbox: initialize lowp float opacity\n\n    gl_FragColor = color * opacity;\n\n#ifdef OVERDRAW_INSPECTOR\n    gl_FragColor = vec4(1.0);\n#endif\n}\n",
-    vertexSource: "#ifdef GL_ES\nprecision highp float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\nattribute vec2 a_pos;\n\nuniform mat4 u_matrix;\n\n#pragma mapbox: define lowp vec4 color\n#pragma mapbox: define lowp float opacity\n\nvoid main() {\n    #pragma mapbox: initialize lowp vec4 color\n    #pragma mapbox: initialize lowp float opacity\n\n    gl_Position = u_matrix * vec4(a_pos, 0, 1);\n}\n"
+    fragmentSource: "#ifdef GL_ES\r\nprecision mediump float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\n#pragma mapbox: define lowp vec4 color\r\n#pragma mapbox: define lowp float opacity\r\n\r\nvoid main() {\r\n    #pragma mapbox: initialize lowp vec4 color\r\n    #pragma mapbox: initialize lowp float opacity\r\n\r\n    gl_FragColor = color * opacity;\r\n\r\n#ifdef OVERDRAW_INSPECTOR\r\n    gl_FragColor = vec4(1.0);\r\n#endif\r\n}\r\n",
+    vertexSource: "#ifdef GL_ES\r\nprecision highp float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\nattribute vec2 a_pos;\r\n\r\nuniform mat4 u_matrix;\r\n\r\n#pragma mapbox: define lowp vec4 color\r\n#pragma mapbox: define lowp float opacity\r\n\r\nvoid main() {\r\n    #pragma mapbox: initialize lowp vec4 color\r\n    #pragma mapbox: initialize lowp float opacity\r\n\r\n    gl_Position = u_matrix * vec4(a_pos, 0, 1);\r\n}\r\n"
   },
   circle: {
-    fragmentSource: "#ifdef GL_ES\nprecision mediump float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\n#pragma mapbox: define lowp vec4 color\n#pragma mapbox: define lowp float blur\n#pragma mapbox: define lowp float opacity\n\nvarying vec2 v_extrude;\nvarying lowp float v_antialiasblur;\n\nvoid main() {\n    #pragma mapbox: initialize lowp vec4 color\n    #pragma mapbox: initialize lowp float blur\n    #pragma mapbox: initialize lowp float opacity\n\n    float t = smoothstep(1.0 - max(blur, v_antialiasblur), 1.0, length(v_extrude));\n    gl_FragColor = color * (1.0 - t) * opacity;\n\n#ifdef OVERDRAW_INSPECTOR\n    gl_FragColor = vec4(1.0);\n#endif\n}\n",
-    vertexSource: "#ifdef GL_ES\nprecision highp float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\nuniform mat4 u_matrix;\nuniform bool u_scale_with_map;\nuniform vec2 u_extrude_scale;\nuniform float u_devicepixelratio;\n\nattribute vec2 a_pos;\n\n#pragma mapbox: define lowp vec4 color\n#pragma mapbox: define mediump float radius\n#pragma mapbox: define lowp float blur\n#pragma mapbox: define lowp float opacity\n\nvarying vec2 v_extrude;\nvarying lowp float v_antialiasblur;\n\nvoid main(void) {\n    #pragma mapbox: initialize lowp vec4 color\n    #pragma mapbox: initialize mediump float radius\n    #pragma mapbox: initialize lowp float blur\n    #pragma mapbox: initialize lowp float opacity\n\n    // unencode the extrusion vector that we snuck into the a_pos vector\n    v_extrude = vec2(mod(a_pos, 2.0) * 2.0 - 1.0);\n\n    vec2 extrude = v_extrude * radius * u_extrude_scale;\n    // multiply a_pos by 0.5, since we had it * 2 in order to sneak\n    // in extrusion data\n    gl_Position = u_matrix * vec4(floor(a_pos * 0.5), 0, 1);\n\n    if (u_scale_with_map) {\n        gl_Position.xy += extrude;\n    } else {\n        gl_Position.xy += extrude * gl_Position.w;\n    }\n\n    // This is a minimum blur distance that serves as a faux-antialiasing for\n    // the circle. since blur is a ratio of the circle's size and the intent is\n    // to keep the blur at roughly 1px, the two are inversely related.\n    v_antialiasblur = 1.0 / u_devicepixelratio / radius;\n}\n"
+    fragmentSource: "#ifdef GL_ES\r\nprecision mediump float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\n#pragma mapbox: define lowp vec4 color\r\n#pragma mapbox: define lowp float blur\r\n#pragma mapbox: define lowp float opacity\r\n\r\nvarying vec2 v_extrude;\r\nvarying lowp float v_antialiasblur;\r\n\r\nvoid main() {\r\n    #pragma mapbox: initialize lowp vec4 color\r\n    #pragma mapbox: initialize lowp float blur\r\n    #pragma mapbox: initialize lowp float opacity\r\n\r\n    float t = smoothstep(1.0 - max(blur, v_antialiasblur), 1.0, length(v_extrude));\r\n    gl_FragColor = color * (1.0 - t) * opacity;\r\n\r\n#ifdef OVERDRAW_INSPECTOR\r\n    gl_FragColor = vec4(1.0);\r\n#endif\r\n}\r\n",
+    vertexSource: "#ifdef GL_ES\r\nprecision highp float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\nuniform mat4 u_matrix;\r\nuniform bool u_scale_with_map;\r\nuniform vec2 u_extrude_scale;\r\nuniform float u_devicepixelratio;\r\n\r\nattribute vec2 a_pos;\r\n\r\n#pragma mapbox: define lowp vec4 color\r\n#pragma mapbox: define mediump float radius\r\n#pragma mapbox: define lowp float blur\r\n#pragma mapbox: define lowp float opacity\r\n\r\nvarying vec2 v_extrude;\r\nvarying lowp float v_antialiasblur;\r\n\r\nvoid main(void) {\r\n    #pragma mapbox: initialize lowp vec4 color\r\n    #pragma mapbox: initialize mediump float radius\r\n    #pragma mapbox: initialize lowp float blur\r\n    #pragma mapbox: initialize lowp float opacity\r\n\r\n    // unencode the extrusion vector that we snuck into the a_pos vector\r\n    v_extrude = vec2(mod(a_pos, 2.0) * 2.0 - 1.0);\r\n\r\n    vec2 extrude = v_extrude * radius * u_extrude_scale;\r\n    // multiply a_pos by 0.5, since we had it * 2 in order to sneak\r\n    // in extrusion data\r\n    gl_Position = u_matrix * vec4(floor(a_pos * 0.5), 0, 1);\r\n\r\n    if (u_scale_with_map) {\r\n        gl_Position.xy += extrude;\r\n    } else {\r\n        gl_Position.xy += extrude * gl_Position.w;\r\n    }\r\n\r\n    // This is a minimum blur distance that serves as a faux-antialiasing for\r\n    // the circle. since blur is a ratio of the circle's size and the intent is\r\n    // to keep the blur at roughly 1px, the two are inversely related.\r\n    v_antialiasblur = 1.0 / u_devicepixelratio / radius;\r\n}\r\n"
   },
   line: {
-    fragmentSource: "#ifdef GL_ES\nprecision mediump float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\nuniform lowp vec4 u_color;\nuniform lowp float u_opacity;\nuniform float u_blur;\n\nvarying vec2 v_linewidth;\nvarying vec2 v_normal;\nvarying float v_gamma_scale;\n\nvoid main() {\n    // Calculate the distance of the pixel from the line in pixels.\n    float dist = length(v_normal) * v_linewidth.s;\n\n    // Calculate the antialiasing fade factor. This is either when fading in\n    // the line in case of an offset line (v_linewidth.t) or when fading out\n    // (v_linewidth.s)\n    float blur = u_blur * v_gamma_scale;\n    float alpha = clamp(min(dist - (v_linewidth.t - blur), v_linewidth.s - dist) / blur, 0.0, 1.0);\n\n    gl_FragColor = u_color * (alpha * u_opacity);\n\n#ifdef OVERDRAW_INSPECTOR\n    gl_FragColor = vec4(1.0);\n#endif\n}\n",
-    vertexSource: "#ifdef GL_ES\nprecision highp float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\n// floor(127 / 2) == 63.0\n// the maximum allowed miter limit is 2.0 at the moment. the extrude normal is\n// stored in a byte (-128..127). we scale regular normals up to length 63, but\n// there are also \"special\" normals that have a bigger length (of up to 126 in\n// this case).\n// #define scale 63.0\n#define scale 0.015873016\n\nattribute vec2 a_pos;\nattribute vec4 a_data;\n\nuniform mat4 u_matrix;\nuniform mediump float u_ratio;\nuniform mediump float u_linewidth;\nuniform mediump float u_gapwidth;\nuniform mediump float u_antialiasing;\nuniform mediump float u_extra;\nuniform mat2 u_antialiasingmatrix;\nuniform mediump float u_offset;\nuniform mediump float u_blur;\n\nvarying vec2 v_normal;\nvarying vec2 v_linewidth;\nvarying float v_gamma_scale;\n\nvoid main() {\n    vec2 a_extrude = a_data.xy - 128.0;\n    float a_direction = mod(a_data.z, 4.0) - 1.0;\n\n    // We store the texture normals in the most insignificant bit\n    // transform y so that 0 => -1 and 1 => 1\n    // In the texture normal, x is 0 if the normal points straight up/down and 1 if it's a round cap\n    // y is 1 if the normal points up, and -1 if it points down\n    mediump vec2 normal = mod(a_pos, 2.0);\n    normal.y = sign(normal.y - 0.5);\n    v_normal = normal;\n\n    float inset = u_gapwidth + (u_gapwidth > 0.0 ? u_antialiasing : 0.0);\n    float outset = u_gapwidth + u_linewidth * (u_gapwidth > 0.0 ? 2.0 : 1.0) + u_antialiasing;\n\n    // Scale the extrusion vector down to a normal and then up by the line width\n    // of this vertex.\n    mediump vec2 dist = outset * a_extrude * scale;\n\n    // Calculate the offset when drawing a line that is to the side of the actual line.\n    // We do this by creating a vector that points towards the extrude, but rotate\n    // it when we're drawing round end points (a_direction = -1 or 1) since their\n    // extrude vector points in another direction.\n    mediump float u = 0.5 * a_direction;\n    mediump float t = 1.0 - abs(u);\n    mediump vec2 offset = u_offset * a_extrude * scale * normal.y * mat2(t, -u, u, t);\n\n    // Remove the texture normal bit of the position before scaling it with the\n    // model/view matrix.\n    gl_Position = u_matrix * vec4(floor(a_pos * 0.5) + (offset + dist) / u_ratio, 0.0, 1.0);\n\n    // position of y on the screen\n    float y = gl_Position.y / gl_Position.w;\n\n    // how much features are squished in the y direction by the tilt\n    float squish_scale = length(a_extrude) / length(u_antialiasingmatrix * a_extrude);\n\n    // how much features are squished in all directions by the perspectiveness\n    float perspective_scale = 1.0 / (1.0 - min(y * u_extra, 0.9));\n\n    v_linewidth = vec2(outset, inset);\n    v_gamma_scale = perspective_scale * squish_scale;\n}\n"
+    fragmentSource: "#ifdef GL_ES\r\nprecision mediump float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\nuniform lowp vec4 u_color;\r\nuniform lowp float u_opacity;\r\nuniform float u_blur;\r\n\r\nvarying vec2 v_linewidth;\r\nvarying vec2 v_normal;\r\nvarying float v_gamma_scale;\r\n\r\nvoid main() {\r\n    // Calculate the distance of the pixel from the line in pixels.\r\n    float dist = length(v_normal) * v_linewidth.s;\r\n\r\n    // Calculate the antialiasing fade factor. This is either when fading in\r\n    // the line in case of an offset line (v_linewidth.t) or when fading out\r\n    // (v_linewidth.s)\r\n    float blur = u_blur * v_gamma_scale;\r\n    float alpha = clamp(min(dist - (v_linewidth.t - blur), v_linewidth.s - dist) / blur, 0.0, 1.0);\r\n\r\n    gl_FragColor = u_color * (alpha * u_opacity);\r\n\r\n#ifdef OVERDRAW_INSPECTOR\r\n    gl_FragColor = vec4(1.0);\r\n#endif\r\n}\r\n",
+    vertexSource: "#ifdef GL_ES\r\nprecision highp float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\n// floor(127 / 2) == 63.0\r\n// the maximum allowed miter limit is 2.0 at the moment. the extrude normal is\r\n// stored in a byte (-128..127). we scale regular normals up to length 63, but\r\n// there are also \"special\" normals that have a bigger length (of up to 126 in\r\n// this case).\r\n// #define scale 63.0\r\n#define scale 0.015873016\r\n\r\nattribute vec2 a_pos;\r\nattribute vec4 a_data;\r\n\r\nuniform mat4 u_matrix;\r\nuniform mediump float u_ratio;\r\nuniform mediump float u_linewidth;\r\nuniform mediump float u_gapwidth;\r\nuniform mediump float u_antialiasing;\r\nuniform mediump float u_extra;\r\nuniform mat2 u_antialiasingmatrix;\r\nuniform mediump float u_offset;\r\nuniform mediump float u_blur;\r\n\r\nvarying vec2 v_normal;\r\nvarying vec2 v_linewidth;\r\nvarying float v_gamma_scale;\r\n\r\nvoid main() {\r\n    vec2 a_extrude = a_data.xy - 128.0;\r\n    float a_direction = mod(a_data.z, 4.0) - 1.0;\r\n\r\n    // We store the texture normals in the most insignificant bit\r\n    // transform y so that 0 => -1 and 1 => 1\r\n    // In the texture normal, x is 0 if the normal points straight up/down and 1 if it's a round cap\r\n    // y is 1 if the normal points up, and -1 if it points down\r\n    mediump vec2 normal = mod(a_pos, 2.0);\r\n    normal.y = sign(normal.y - 0.5);\r\n    v_normal = normal;\r\n\r\n    float inset = u_gapwidth + (u_gapwidth > 0.0 ? u_antialiasing : 0.0);\r\n    float outset = u_gapwidth + u_linewidth * (u_gapwidth > 0.0 ? 2.0 : 1.0) + u_antialiasing;\r\n\r\n    // Scale the extrusion vector down to a normal and then up by the line width\r\n    // of this vertex.\r\n    mediump vec2 dist = outset * a_extrude * scale;\r\n\r\n    // Calculate the offset when drawing a line that is to the side of the actual line.\r\n    // We do this by creating a vector that points towards the extrude, but rotate\r\n    // it when we're drawing round end points (a_direction = -1 or 1) since their\r\n    // extrude vector points in another direction.\r\n    mediump float u = 0.5 * a_direction;\r\n    mediump float t = 1.0 - abs(u);\r\n    mediump vec2 offset = u_offset * a_extrude * scale * normal.y * mat2(t, -u, u, t);\r\n\r\n    // Remove the texture normal bit of the position before scaling it with the\r\n    // model/view matrix.\r\n    gl_Position = u_matrix * vec4(floor(a_pos * 0.5) + (offset + dist) / u_ratio, 0.0, 1.0);\r\n\r\n    // position of y on the screen\r\n    float y = gl_Position.y / gl_Position.w;\r\n\r\n    // how much features are squished in the y direction by the tilt\r\n    float squish_scale = length(a_extrude) / length(u_antialiasingmatrix * a_extrude);\r\n\r\n    // how much features are squished in all directions by the perspectiveness\r\n    float perspective_scale = 1.0 / (1.0 - min(y * u_extra, 0.9));\r\n\r\n    v_linewidth = vec2(outset, inset);\r\n    v_gamma_scale = perspective_scale * squish_scale;\r\n}\r\n"
   },
   linepattern: {
-    fragmentSource: "#ifdef GL_ES\nprecision mediump float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\nuniform float u_blur;\n\nuniform vec2 u_pattern_size_a;\nuniform vec2 u_pattern_size_b;\nuniform vec2 u_pattern_tl_a;\nuniform vec2 u_pattern_br_a;\nuniform vec2 u_pattern_tl_b;\nuniform vec2 u_pattern_br_b;\nuniform float u_fade;\nuniform float u_opacity;\n\nuniform sampler2D u_image;\n\nvarying vec2 v_normal;\nvarying vec2 v_linewidth;\nvarying float v_linesofar;\nvarying float v_gamma_scale;\n\nvoid main() {\n    // Calculate the distance of the pixel from the line in pixels.\n    float dist = length(v_normal) * v_linewidth.s;\n\n    // Calculate the antialiasing fade factor. This is either when fading in\n    // the line in case of an offset line (v_linewidth.t) or when fading out\n    // (v_linewidth.s)\n    float blur = u_blur * v_gamma_scale;\n    float alpha = clamp(min(dist - (v_linewidth.t - blur), v_linewidth.s - dist) / blur, 0.0, 1.0);\n\n    float x_a = mod(v_linesofar / u_pattern_size_a.x, 1.0);\n    float x_b = mod(v_linesofar / u_pattern_size_b.x, 1.0);\n    float y_a = 0.5 + (v_normal.y * v_linewidth.s / u_pattern_size_a.y);\n    float y_b = 0.5 + (v_normal.y * v_linewidth.s / u_pattern_size_b.y);\n    vec2 pos_a = mix(u_pattern_tl_a, u_pattern_br_a, vec2(x_a, y_a));\n    vec2 pos_b = mix(u_pattern_tl_b, u_pattern_br_b, vec2(x_b, y_b));\n\n    vec4 color = mix(texture2D(u_image, pos_a), texture2D(u_image, pos_b), u_fade);\n\n    alpha *= u_opacity;\n\n    gl_FragColor = color * alpha;\n\n#ifdef OVERDRAW_INSPECTOR\n    gl_FragColor = vec4(1.0);\n#endif\n}\n",
-    vertexSource: "#ifdef GL_ES\nprecision highp float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\n// floor(127 / 2) == 63.0\n// the maximum allowed miter limit is 2.0 at the moment. the extrude normal is\n// stored in a byte (-128..127). we scale regular normals up to length 63, but\n// there are also \"special\" normals that have a bigger length (of up to 126 in\n// this case).\n// #define scale 63.0\n#define scale 0.015873016\n\n// We scale the distance before adding it to the buffers so that we can store\n// long distances for long segments. Use this value to unscale the distance.\n#define LINE_DISTANCE_SCALE 2.0\n\nattribute vec2 a_pos;\nattribute vec4 a_data;\n\nuniform mat4 u_matrix;\nuniform mediump float u_ratio;\nuniform mediump float u_linewidth;\nuniform mediump float u_gapwidth;\nuniform mediump float u_antialiasing;\nuniform mediump float u_extra;\nuniform mat2 u_antialiasingmatrix;\nuniform mediump float u_offset;\n\nvarying vec2 v_normal;\nvarying vec2 v_linewidth;\nvarying float v_linesofar;\nvarying float v_gamma_scale;\n\nvoid main() {\n    vec2 a_extrude = a_data.xy - 128.0;\n    float a_direction = mod(a_data.z, 4.0) - 1.0;\n    float a_linesofar = (floor(a_data.z / 4.0) + a_data.w * 64.0) * LINE_DISTANCE_SCALE;\n\n    // We store the texture normals in the most insignificant bit\n    // transform y so that 0 => -1 and 1 => 1\n    // In the texture normal, x is 0 if the normal points straight up/down and 1 if it's a round cap\n    // y is 1 if the normal points up, and -1 if it points down\n    mediump vec2 normal = mod(a_pos, 2.0);\n    normal.y = sign(normal.y - 0.5);\n    v_normal = normal;\n\n    float inset = u_gapwidth + (u_gapwidth > 0.0 ? u_antialiasing : 0.0);\n    float outset = u_gapwidth + u_linewidth * (u_gapwidth > 0.0 ? 2.0 : 1.0) + u_antialiasing;\n\n    // Scale the extrusion vector down to a normal and then up by the line width\n    // of this vertex.\n    mediump vec2 dist = outset * a_extrude * scale;\n\n    // Calculate the offset when drawing a line that is to the side of the actual line.\n    // We do this by creating a vector that points towards the extrude, but rotate\n    // it when we're drawing round end points (a_direction = -1 or 1) since their\n    // extrude vector points in another direction.\n    mediump float u = 0.5 * a_direction;\n    mediump float t = 1.0 - abs(u);\n    mediump vec2 offset = u_offset * a_extrude * scale * normal.y * mat2(t, -u, u, t);\n\n    // Remove the texture normal bit of the position before scaling it with the\n    // model/view matrix.\n    gl_Position = u_matrix * vec4(floor(a_pos * 0.5) + (offset + dist) / u_ratio, 0.0, 1.0);\n    v_linesofar = a_linesofar;\n\n    // position of y on the screen\n    float y = gl_Position.y / gl_Position.w;\n\n    // how much features are squished in the y direction by the tilt\n    float squish_scale = length(a_extrude) / length(u_antialiasingmatrix * a_extrude);\n\n    // how much features are squished in all directions by the perspectiveness\n    float perspective_scale = 1.0 / (1.0 - min(y * u_extra, 0.9));\n\n    v_linewidth = vec2(outset, inset);\n    v_gamma_scale = perspective_scale * squish_scale;\n}\n"
+    fragmentSource: "#ifdef GL_ES\r\nprecision mediump float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\nuniform float u_blur;\r\n\r\nuniform vec2 u_pattern_size_a;\r\nuniform vec2 u_pattern_size_b;\r\nuniform vec2 u_pattern_tl_a;\r\nuniform vec2 u_pattern_br_a;\r\nuniform vec2 u_pattern_tl_b;\r\nuniform vec2 u_pattern_br_b;\r\nuniform float u_fade;\r\nuniform float u_opacity;\r\n\r\nuniform sampler2D u_image;\r\n\r\nvarying vec2 v_normal;\r\nvarying vec2 v_linewidth;\r\nvarying float v_linesofar;\r\nvarying float v_gamma_scale;\r\n\r\nvoid main() {\r\n    // Calculate the distance of the pixel from the line in pixels.\r\n    float dist = length(v_normal) * v_linewidth.s;\r\n\r\n    // Calculate the antialiasing fade factor. This is either when fading in\r\n    // the line in case of an offset line (v_linewidth.t) or when fading out\r\n    // (v_linewidth.s)\r\n    float blur = u_blur * v_gamma_scale;\r\n    float alpha = clamp(min(dist - (v_linewidth.t - blur), v_linewidth.s - dist) / blur, 0.0, 1.0);\r\n\r\n    float x_a = mod(v_linesofar / u_pattern_size_a.x, 1.0);\r\n    float x_b = mod(v_linesofar / u_pattern_size_b.x, 1.0);\r\n    float y_a = 0.5 + (v_normal.y * v_linewidth.s / u_pattern_size_a.y);\r\n    float y_b = 0.5 + (v_normal.y * v_linewidth.s / u_pattern_size_b.y);\r\n    vec2 pos_a = mix(u_pattern_tl_a, u_pattern_br_a, vec2(x_a, y_a));\r\n    vec2 pos_b = mix(u_pattern_tl_b, u_pattern_br_b, vec2(x_b, y_b));\r\n\r\n    vec4 color = mix(texture2D(u_image, pos_a), texture2D(u_image, pos_b), u_fade);\r\n\r\n    alpha *= u_opacity;\r\n\r\n    gl_FragColor = color * alpha;\r\n\r\n#ifdef OVERDRAW_INSPECTOR\r\n    gl_FragColor = vec4(1.0);\r\n#endif\r\n}\r\n",
+    vertexSource: "#ifdef GL_ES\r\nprecision highp float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\n// floor(127 / 2) == 63.0\r\n// the maximum allowed miter limit is 2.0 at the moment. the extrude normal is\r\n// stored in a byte (-128..127). we scale regular normals up to length 63, but\r\n// there are also \"special\" normals that have a bigger length (of up to 126 in\r\n// this case).\r\n// #define scale 63.0\r\n#define scale 0.015873016\r\n\r\n// We scale the distance before adding it to the buffers so that we can store\r\n// long distances for long segments. Use this value to unscale the distance.\r\n#define LINE_DISTANCE_SCALE 2.0\r\n\r\nattribute vec2 a_pos;\r\nattribute vec4 a_data;\r\n\r\nuniform mat4 u_matrix;\r\nuniform mediump float u_ratio;\r\nuniform mediump float u_linewidth;\r\nuniform mediump float u_gapwidth;\r\nuniform mediump float u_antialiasing;\r\nuniform mediump float u_extra;\r\nuniform mat2 u_antialiasingmatrix;\r\nuniform mediump float u_offset;\r\n\r\nvarying vec2 v_normal;\r\nvarying vec2 v_linewidth;\r\nvarying float v_linesofar;\r\nvarying float v_gamma_scale;\r\n\r\nvoid main() {\r\n    vec2 a_extrude = a_data.xy - 128.0;\r\n    float a_direction = mod(a_data.z, 4.0) - 1.0;\r\n    float a_linesofar = (floor(a_data.z / 4.0) + a_data.w * 64.0) * LINE_DISTANCE_SCALE;\r\n\r\n    // We store the texture normals in the most insignificant bit\r\n    // transform y so that 0 => -1 and 1 => 1\r\n    // In the texture normal, x is 0 if the normal points straight up/down and 1 if it's a round cap\r\n    // y is 1 if the normal points up, and -1 if it points down\r\n    mediump vec2 normal = mod(a_pos, 2.0);\r\n    normal.y = sign(normal.y - 0.5);\r\n    v_normal = normal;\r\n\r\n    float inset = u_gapwidth + (u_gapwidth > 0.0 ? u_antialiasing : 0.0);\r\n    float outset = u_gapwidth + u_linewidth * (u_gapwidth > 0.0 ? 2.0 : 1.0) + u_antialiasing;\r\n\r\n    // Scale the extrusion vector down to a normal and then up by the line width\r\n    // of this vertex.\r\n    mediump vec2 dist = outset * a_extrude * scale;\r\n\r\n    // Calculate the offset when drawing a line that is to the side of the actual line.\r\n    // We do this by creating a vector that points towards the extrude, but rotate\r\n    // it when we're drawing round end points (a_direction = -1 or 1) since their\r\n    // extrude vector points in another direction.\r\n    mediump float u = 0.5 * a_direction;\r\n    mediump float t = 1.0 - abs(u);\r\n    mediump vec2 offset = u_offset * a_extrude * scale * normal.y * mat2(t, -u, u, t);\r\n\r\n    // Remove the texture normal bit of the position before scaling it with the\r\n    // model/view matrix.\r\n    gl_Position = u_matrix * vec4(floor(a_pos * 0.5) + (offset + dist) / u_ratio, 0.0, 1.0);\r\n    v_linesofar = a_linesofar;\r\n\r\n    // position of y on the screen\r\n    float y = gl_Position.y / gl_Position.w;\r\n\r\n    // how much features are squished in the y direction by the tilt\r\n    float squish_scale = length(a_extrude) / length(u_antialiasingmatrix * a_extrude);\r\n\r\n    // how much features are squished in all directions by the perspectiveness\r\n    float perspective_scale = 1.0 / (1.0 - min(y * u_extra, 0.9));\r\n\r\n    v_linewidth = vec2(outset, inset);\r\n    v_gamma_scale = perspective_scale * squish_scale;\r\n}\r\n"
   },
   linesdfpattern: {
-    fragmentSource: "#ifdef GL_ES\nprecision mediump float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\nuniform lowp vec4 u_color;\nuniform lowp float u_opacity;\n\nuniform float u_blur;\nuniform sampler2D u_image;\nuniform float u_sdfgamma;\nuniform float u_mix;\n\nvarying vec2 v_normal;\nvarying vec2 v_linewidth;\nvarying vec2 v_tex_a;\nvarying vec2 v_tex_b;\nvarying float v_gamma_scale;\n\nvoid main() {\n    // Calculate the distance of the pixel from the line in pixels.\n    float dist = length(v_normal) * v_linewidth.s;\n\n    // Calculate the antialiasing fade factor. This is either when fading in\n    // the line in case of an offset line (v_linewidth.t) or when fading out\n    // (v_linewidth.s)\n    float blur = u_blur * v_gamma_scale;\n    float alpha = clamp(min(dist - (v_linewidth.t - blur), v_linewidth.s - dist) / blur, 0.0, 1.0);\n\n    float sdfdist_a = texture2D(u_image, v_tex_a).a;\n    float sdfdist_b = texture2D(u_image, v_tex_b).a;\n    float sdfdist = mix(sdfdist_a, sdfdist_b, u_mix);\n    alpha *= smoothstep(0.5 - u_sdfgamma, 0.5 + u_sdfgamma, sdfdist);\n\n    gl_FragColor = u_color * (alpha * u_opacity);\n\n#ifdef OVERDRAW_INSPECTOR\n    gl_FragColor = vec4(1.0);\n#endif\n}\n",
-    vertexSource: "#ifdef GL_ES\nprecision highp float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\n// floor(127 / 2) == 63.0\n// the maximum allowed miter limit is 2.0 at the moment. the extrude normal is\n// stored in a byte (-128..127). we scale regular normals up to length 63, but\n// there are also \"special\" normals that have a bigger length (of up to 126 in\n// this case).\n// #define scale 63.0\n#define scale 0.015873016\n\n// We scale the distance before adding it to the buffers so that we can store\n// long distances for long segments. Use this value to unscale the distance.\n#define LINE_DISTANCE_SCALE 2.0\n\nattribute vec2 a_pos;\nattribute vec4 a_data;\n\nuniform mat4 u_matrix;\nuniform mediump float u_ratio;\nuniform mediump float u_linewidth;\nuniform mediump float u_gapwidth;\nuniform mediump float u_antialiasing;\nuniform vec2 u_patternscale_a;\nuniform float u_tex_y_a;\nuniform vec2 u_patternscale_b;\nuniform float u_tex_y_b;\nuniform float u_extra;\nuniform mat2 u_antialiasingmatrix;\nuniform mediump float u_offset;\n\nvarying vec2 v_normal;\nvarying vec2 v_linewidth;\nvarying vec2 v_tex_a;\nvarying vec2 v_tex_b;\nvarying float v_gamma_scale;\n\nvoid main() {\n    vec2 a_extrude = a_data.xy - 128.0;\n    float a_direction = mod(a_data.z, 4.0) - 1.0;\n    float a_linesofar = (floor(a_data.z / 4.0) + a_data.w * 64.0) * LINE_DISTANCE_SCALE;\n\n    // We store the texture normals in the most insignificant bit\n    // transform y so that 0 => -1 and 1 => 1\n    // In the texture normal, x is 0 if the normal points straight up/down and 1 if it's a round cap\n    // y is 1 if the normal points up, and -1 if it points down\n    mediump vec2 normal = mod(a_pos, 2.0);\n    normal.y = sign(normal.y - 0.5);\n    v_normal = normal;\n\n    float inset = u_gapwidth + (u_gapwidth > 0.0 ? u_antialiasing : 0.0);\n    float outset = u_gapwidth + u_linewidth * (u_gapwidth > 0.0 ? 2.0 : 1.0) + u_antialiasing;\n\n    // Scale the extrusion vector down to a normal and then up by the line width\n    // of this vertex.\n    mediump vec2 dist = outset * a_extrude * scale;\n\n    // Calculate the offset when drawing a line that is to the side of the actual line.\n    // We do this by creating a vector that points towards the extrude, but rotate\n    // it when we're drawing round end points (a_direction = -1 or 1) since their\n    // extrude vector points in another direction.\n    mediump float u = 0.5 * a_direction;\n    mediump float t = 1.0 - abs(u);\n    mediump vec2 offset = u_offset * a_extrude * scale * normal.y * mat2(t, -u, u, t);\n\n    // Remove the texture normal bit of the position before scaling it with the\n    // model/view matrix.\n    gl_Position = u_matrix * vec4(floor(a_pos * 0.5) + (offset + dist) / u_ratio, 0.0, 1.0);\n\n    v_tex_a = vec2(a_linesofar * u_patternscale_a.x, normal.y * u_patternscale_a.y + u_tex_y_a);\n    v_tex_b = vec2(a_linesofar * u_patternscale_b.x, normal.y * u_patternscale_b.y + u_tex_y_b);\n\n    // position of y on the screen\n    float y = gl_Position.y / gl_Position.w;\n\n    // how much features are squished in the y direction by the tilt\n    float squish_scale = length(a_extrude) / length(u_antialiasingmatrix * a_extrude);\n\n    // how much features are squished in all directions by the perspectiveness\n    float perspective_scale = 1.0 / (1.0 - min(y * u_extra, 0.9));\n\n    v_linewidth = vec2(outset, inset);\n    v_gamma_scale = perspective_scale * squish_scale;\n}\n"
+    fragmentSource: "#ifdef GL_ES\r\nprecision mediump float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\nuniform lowp vec4 u_color;\r\nuniform lowp float u_opacity;\r\n\r\nuniform float u_blur;\r\nuniform sampler2D u_image;\r\nuniform float u_sdfgamma;\r\nuniform float u_mix;\r\n\r\nvarying vec2 v_normal;\r\nvarying vec2 v_linewidth;\r\nvarying vec2 v_tex_a;\r\nvarying vec2 v_tex_b;\r\nvarying float v_gamma_scale;\r\n\r\nvoid main() {\r\n    // Calculate the distance of the pixel from the line in pixels.\r\n    float dist = length(v_normal) * v_linewidth.s;\r\n\r\n    // Calculate the antialiasing fade factor. This is either when fading in\r\n    // the line in case of an offset line (v_linewidth.t) or when fading out\r\n    // (v_linewidth.s)\r\n    float blur = u_blur * v_gamma_scale;\r\n    float alpha = clamp(min(dist - (v_linewidth.t - blur), v_linewidth.s - dist) / blur, 0.0, 1.0);\r\n\r\n    float sdfdist_a = texture2D(u_image, v_tex_a).a;\r\n    float sdfdist_b = texture2D(u_image, v_tex_b).a;\r\n    float sdfdist = mix(sdfdist_a, sdfdist_b, u_mix);\r\n    alpha *= smoothstep(0.5 - u_sdfgamma, 0.5 + u_sdfgamma, sdfdist);\r\n\r\n    gl_FragColor = u_color * (alpha * u_opacity);\r\n\r\n#ifdef OVERDRAW_INSPECTOR\r\n    gl_FragColor = vec4(1.0);\r\n#endif\r\n}\r\n",
+    vertexSource: "#ifdef GL_ES\r\nprecision highp float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\n// floor(127 / 2) == 63.0\r\n// the maximum allowed miter limit is 2.0 at the moment. the extrude normal is\r\n// stored in a byte (-128..127). we scale regular normals up to length 63, but\r\n// there are also \"special\" normals that have a bigger length (of up to 126 in\r\n// this case).\r\n// #define scale 63.0\r\n#define scale 0.015873016\r\n\r\n// We scale the distance before adding it to the buffers so that we can store\r\n// long distances for long segments. Use this value to unscale the distance.\r\n#define LINE_DISTANCE_SCALE 2.0\r\n\r\nattribute vec2 a_pos;\r\nattribute vec4 a_data;\r\n\r\nuniform mat4 u_matrix;\r\nuniform mediump float u_ratio;\r\nuniform mediump float u_linewidth;\r\nuniform mediump float u_gapwidth;\r\nuniform mediump float u_antialiasing;\r\nuniform vec2 u_patternscale_a;\r\nuniform float u_tex_y_a;\r\nuniform vec2 u_patternscale_b;\r\nuniform float u_tex_y_b;\r\nuniform float u_extra;\r\nuniform mat2 u_antialiasingmatrix;\r\nuniform mediump float u_offset;\r\n\r\nvarying vec2 v_normal;\r\nvarying vec2 v_linewidth;\r\nvarying vec2 v_tex_a;\r\nvarying vec2 v_tex_b;\r\nvarying float v_gamma_scale;\r\n\r\nvoid main() {\r\n    vec2 a_extrude = a_data.xy - 128.0;\r\n    float a_direction = mod(a_data.z, 4.0) - 1.0;\r\n    float a_linesofar = (floor(a_data.z / 4.0) + a_data.w * 64.0) * LINE_DISTANCE_SCALE;\r\n\r\n    // We store the texture normals in the most insignificant bit\r\n    // transform y so that 0 => -1 and 1 => 1\r\n    // In the texture normal, x is 0 if the normal points straight up/down and 1 if it's a round cap\r\n    // y is 1 if the normal points up, and -1 if it points down\r\n    mediump vec2 normal = mod(a_pos, 2.0);\r\n    normal.y = sign(normal.y - 0.5);\r\n    v_normal = normal;\r\n\r\n    float inset = u_gapwidth + (u_gapwidth > 0.0 ? u_antialiasing : 0.0);\r\n    float outset = u_gapwidth + u_linewidth * (u_gapwidth > 0.0 ? 2.0 : 1.0) + u_antialiasing;\r\n\r\n    // Scale the extrusion vector down to a normal and then up by the line width\r\n    // of this vertex.\r\n    mediump vec2 dist = outset * a_extrude * scale;\r\n\r\n    // Calculate the offset when drawing a line that is to the side of the actual line.\r\n    // We do this by creating a vector that points towards the extrude, but rotate\r\n    // it when we're drawing round end points (a_direction = -1 or 1) since their\r\n    // extrude vector points in another direction.\r\n    mediump float u = 0.5 * a_direction;\r\n    mediump float t = 1.0 - abs(u);\r\n    mediump vec2 offset = u_offset * a_extrude * scale * normal.y * mat2(t, -u, u, t);\r\n\r\n    // Remove the texture normal bit of the position before scaling it with the\r\n    // model/view matrix.\r\n    gl_Position = u_matrix * vec4(floor(a_pos * 0.5) + (offset + dist) / u_ratio, 0.0, 1.0);\r\n\r\n    v_tex_a = vec2(a_linesofar * u_patternscale_a.x, normal.y * u_patternscale_a.y + u_tex_y_a);\r\n    v_tex_b = vec2(a_linesofar * u_patternscale_b.x, normal.y * u_patternscale_b.y + u_tex_y_b);\r\n\r\n    // position of y on the screen\r\n    float y = gl_Position.y / gl_Position.w;\r\n\r\n    // how much features are squished in the y direction by the tilt\r\n    float squish_scale = length(a_extrude) / length(u_antialiasingmatrix * a_extrude);\r\n\r\n    // how much features are squished in all directions by the perspectiveness\r\n    float perspective_scale = 1.0 / (1.0 - min(y * u_extra, 0.9));\r\n\r\n    v_linewidth = vec2(outset, inset);\r\n    v_gamma_scale = perspective_scale * squish_scale;\r\n}\r\n"
   },
   outline: {
-    fragmentSource: "#ifdef GL_ES\nprecision mediump float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\n#pragma mapbox: define lowp vec4 outline_color\n#pragma mapbox: define lowp float opacity\n\nvarying vec2 v_pos;\n\nvoid main() {\n    #pragma mapbox: initialize lowp vec4 outline_color\n    #pragma mapbox: initialize lowp float opacity\n\n    float dist = length(v_pos - gl_FragCoord.xy);\n    float alpha = smoothstep(1.0, 0.0, dist);\n    gl_FragColor = outline_color * (alpha * opacity);\n\n#ifdef OVERDRAW_INSPECTOR\n    gl_FragColor = vec4(1.0);\n#endif\n}\n",
-    vertexSource: "#ifdef GL_ES\nprecision highp float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\nattribute vec2 a_pos;\n\nuniform mat4 u_matrix;\nuniform vec2 u_world;\n\nvarying vec2 v_pos;\n\n#pragma mapbox: define lowp vec4 outline_color\n#pragma mapbox: define lowp float opacity\n\nvoid main() {\n    #pragma mapbox: initialize lowp vec4 outline_color\n    #pragma mapbox: initialize lowp float opacity\n\n    gl_Position = u_matrix * vec4(a_pos, 0, 1);\n    v_pos = (gl_Position.xy / gl_Position.w + 1.0) / 2.0 * u_world;\n}\n"
+    fragmentSource: "#ifdef GL_ES\r\nprecision mediump float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\n#pragma mapbox: define lowp vec4 outline_color\r\n#pragma mapbox: define lowp float opacity\r\n\r\nvarying vec2 v_pos;\r\n\r\nvoid main() {\r\n    #pragma mapbox: initialize lowp vec4 outline_color\r\n    #pragma mapbox: initialize lowp float opacity\r\n\r\n    float dist = length(v_pos - gl_FragCoord.xy);\r\n    float alpha = smoothstep(1.0, 0.0, dist);\r\n    gl_FragColor = outline_color * (alpha * opacity);\r\n\r\n#ifdef OVERDRAW_INSPECTOR\r\n    gl_FragColor = vec4(1.0);\r\n#endif\r\n}\r\n",
+    vertexSource: "#ifdef GL_ES\r\nprecision highp float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\nattribute vec2 a_pos;\r\n\r\nuniform mat4 u_matrix;\r\nuniform vec2 u_world;\r\n\r\nvarying vec2 v_pos;\r\n\r\n#pragma mapbox: define lowp vec4 outline_color\r\n#pragma mapbox: define lowp float opacity\r\n\r\nvoid main() {\r\n    #pragma mapbox: initialize lowp vec4 outline_color\r\n    #pragma mapbox: initialize lowp float opacity\r\n\r\n    gl_Position = u_matrix * vec4(a_pos, 0, 1);\r\n    v_pos = (gl_Position.xy / gl_Position.w + 1.0) / 2.0 * u_world;\r\n}\r\n"
   },
   outlinepattern: {
-    fragmentSource: "#ifdef GL_ES\nprecision mediump float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\nuniform float u_opacity;\nuniform vec2 u_pattern_tl_a;\nuniform vec2 u_pattern_br_a;\nuniform vec2 u_pattern_tl_b;\nuniform vec2 u_pattern_br_b;\nuniform float u_mix;\n\nuniform sampler2D u_image;\n\nvarying vec2 v_pos_a;\nvarying vec2 v_pos_b;\nvarying vec2 v_pos;\n\nvoid main() {\n    vec2 imagecoord = mod(v_pos_a, 1.0);\n    vec2 pos = mix(u_pattern_tl_a, u_pattern_br_a, imagecoord);\n    vec4 color1 = texture2D(u_image, pos);\n\n    vec2 imagecoord_b = mod(v_pos_b, 1.0);\n    vec2 pos2 = mix(u_pattern_tl_b, u_pattern_br_b, imagecoord_b);\n    vec4 color2 = texture2D(u_image, pos2);\n\n    // find distance to outline for alpha interpolation\n\n    float dist = length(v_pos - gl_FragCoord.xy);\n    float alpha = smoothstep(1.0, 0.0, dist);\n    \n\n    gl_FragColor = mix(color1, color2, u_mix) * alpha * u_opacity;\n\n#ifdef OVERDRAW_INSPECTOR\n    gl_FragColor = vec4(1.0);\n#endif\n}\n",
-    vertexSource: "#ifdef GL_ES\nprecision highp float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\nuniform vec2 u_pattern_size_a;\nuniform vec2 u_pattern_size_b;\nuniform vec2 u_pixel_coord_upper;\nuniform vec2 u_pixel_coord_lower;\nuniform float u_scale_a;\nuniform float u_scale_b;\nuniform float u_tile_units_to_pixels;\n\nattribute vec2 a_pos;\n\nuniform mat4 u_matrix;\nuniform vec2 u_world;\n\nvarying vec2 v_pos_a;\nvarying vec2 v_pos_b;\nvarying vec2 v_pos;\n\nvoid main() {\n    gl_Position = u_matrix * vec4(a_pos, 0, 1);\n    vec2 scaled_size_a = u_scale_a * u_pattern_size_a;\n    vec2 scaled_size_b = u_scale_b * u_pattern_size_b;\n\n    // the correct offset needs to be calculated.\n    //\n    // The offset depends on how many pixels are between the world origin and\n    // the edge of the tile:\n    // vec2 offset = mod(pixel_coord, size)\n    //\n    // At high zoom levels there are a ton of pixels between the world origin\n    // and the edge of the tile. The glsl spec only guarantees 16 bits of\n    // precision for highp floats. We need more than that.\n    //\n    // The pixel_coord is passed in as two 16 bit values:\n    // pixel_coord_upper = floor(pixel_coord / 2^16)\n    // pixel_coord_lower = mod(pixel_coord, 2^16)\n    //\n    // The offset is calculated in a series of steps that should preserve this precision:\n    vec2 offset_a = mod(mod(mod(u_pixel_coord_upper, scaled_size_a) * 256.0, scaled_size_a) * 256.0 + u_pixel_coord_lower, scaled_size_a);\n    vec2 offset_b = mod(mod(mod(u_pixel_coord_upper, scaled_size_b) * 256.0, scaled_size_b) * 256.0 + u_pixel_coord_lower, scaled_size_b);\n\n    v_pos_a = (u_tile_units_to_pixels * a_pos + offset_a) / scaled_size_a;\n    v_pos_b = (u_tile_units_to_pixels * a_pos + offset_b) / scaled_size_b;\n\n    v_pos = (gl_Position.xy / gl_Position.w + 1.0) / 2.0 * u_world;\n}\n"
+    fragmentSource: "#ifdef GL_ES\r\nprecision mediump float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\nuniform float u_opacity;\r\nuniform vec2 u_pattern_tl_a;\r\nuniform vec2 u_pattern_br_a;\r\nuniform vec2 u_pattern_tl_b;\r\nuniform vec2 u_pattern_br_b;\r\nuniform float u_mix;\r\n\r\nuniform sampler2D u_image;\r\n\r\nvarying vec2 v_pos_a;\r\nvarying vec2 v_pos_b;\r\nvarying vec2 v_pos;\r\n\r\nvoid main() {\r\n    vec2 imagecoord = mod(v_pos_a, 1.0);\r\n    vec2 pos = mix(u_pattern_tl_a, u_pattern_br_a, imagecoord);\r\n    vec4 color1 = texture2D(u_image, pos);\r\n\r\n    vec2 imagecoord_b = mod(v_pos_b, 1.0);\r\n    vec2 pos2 = mix(u_pattern_tl_b, u_pattern_br_b, imagecoord_b);\r\n    vec4 color2 = texture2D(u_image, pos2);\r\n\r\n    // find distance to outline for alpha interpolation\r\n\r\n    float dist = length(v_pos - gl_FragCoord.xy);\r\n    float alpha = smoothstep(1.0, 0.0, dist);\r\n    \r\n\r\n    gl_FragColor = mix(color1, color2, u_mix) * alpha * u_opacity;\r\n\r\n#ifdef OVERDRAW_INSPECTOR\r\n    gl_FragColor = vec4(1.0);\r\n#endif\r\n}\r\n",
+    vertexSource: "#ifdef GL_ES\r\nprecision highp float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\nuniform vec2 u_pattern_size_a;\r\nuniform vec2 u_pattern_size_b;\r\nuniform vec2 u_pixel_coord_upper;\r\nuniform vec2 u_pixel_coord_lower;\r\nuniform float u_scale_a;\r\nuniform float u_scale_b;\r\nuniform float u_tile_units_to_pixels;\r\n\r\nattribute vec2 a_pos;\r\n\r\nuniform mat4 u_matrix;\r\nuniform vec2 u_world;\r\n\r\nvarying vec2 v_pos_a;\r\nvarying vec2 v_pos_b;\r\nvarying vec2 v_pos;\r\n\r\nvoid main() {\r\n    gl_Position = u_matrix * vec4(a_pos, 0, 1);\r\n    vec2 scaled_size_a = u_scale_a * u_pattern_size_a;\r\n    vec2 scaled_size_b = u_scale_b * u_pattern_size_b;\r\n\r\n    // the correct offset needs to be calculated.\r\n    //\r\n    // The offset depends on how many pixels are between the world origin and\r\n    // the edge of the tile:\r\n    // vec2 offset = mod(pixel_coord, size)\r\n    //\r\n    // At high zoom levels there are a ton of pixels between the world origin\r\n    // and the edge of the tile. The glsl spec only guarantees 16 bits of\r\n    // precision for highp floats. We need more than that.\r\n    //\r\n    // The pixel_coord is passed in as two 16 bit values:\r\n    // pixel_coord_upper = floor(pixel_coord / 2^16)\r\n    // pixel_coord_lower = mod(pixel_coord, 2^16)\r\n    //\r\n    // The offset is calculated in a series of steps that should preserve this precision:\r\n    vec2 offset_a = mod(mod(mod(u_pixel_coord_upper, scaled_size_a) * 256.0, scaled_size_a) * 256.0 + u_pixel_coord_lower, scaled_size_a);\r\n    vec2 offset_b = mod(mod(mod(u_pixel_coord_upper, scaled_size_b) * 256.0, scaled_size_b) * 256.0 + u_pixel_coord_lower, scaled_size_b);\r\n\r\n    v_pos_a = (u_tile_units_to_pixels * a_pos + offset_a) / scaled_size_a;\r\n    v_pos_b = (u_tile_units_to_pixels * a_pos + offset_b) / scaled_size_b;\r\n\r\n    v_pos = (gl_Position.xy / gl_Position.w + 1.0) / 2.0 * u_world;\r\n}\r\n"
   },
   pattern: {
-    fragmentSource: "#ifdef GL_ES\nprecision mediump float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\nuniform float u_opacity;\nuniform vec2 u_pattern_tl_a;\nuniform vec2 u_pattern_br_a;\nuniform vec2 u_pattern_tl_b;\nuniform vec2 u_pattern_br_b;\nuniform float u_mix;\n\nuniform sampler2D u_image;\n\nvarying vec2 v_pos_a;\nvarying vec2 v_pos_b;\n\nvoid main() {\n\n    vec2 imagecoord = mod(v_pos_a, 1.0);\n    vec2 pos = mix(u_pattern_tl_a, u_pattern_br_a, imagecoord);\n    vec4 color1 = texture2D(u_image, pos);\n\n    vec2 imagecoord_b = mod(v_pos_b, 1.0);\n    vec2 pos2 = mix(u_pattern_tl_b, u_pattern_br_b, imagecoord_b);\n    vec4 color2 = texture2D(u_image, pos2);\n\n    gl_FragColor = mix(color1, color2, u_mix) * u_opacity;\n\n#ifdef OVERDRAW_INSPECTOR\n    gl_FragColor = vec4(1.0);\n#endif\n}\n",
-    vertexSource: "#ifdef GL_ES\nprecision highp float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\nuniform mat4 u_matrix;\nuniform vec2 u_pattern_size_a;\nuniform vec2 u_pattern_size_b;\nuniform vec2 u_pixel_coord_upper;\nuniform vec2 u_pixel_coord_lower;\nuniform float u_scale_a;\nuniform float u_scale_b;\nuniform float u_tile_units_to_pixels;\n\nattribute vec2 a_pos;\n\nvarying vec2 v_pos_a;\nvarying vec2 v_pos_b;\n\nvoid main() {\n    gl_Position = u_matrix * vec4(a_pos, 0, 1);\n    vec2 scaled_size_a = u_scale_a * u_pattern_size_a;\n    vec2 scaled_size_b = u_scale_b * u_pattern_size_b;\n\n    // the correct offset needs to be calculated.\n    //\n    // The offset depends on how many pixels are between the world origin and\n    // the edge of the tile:\n    // vec2 offset = mod(pixel_coord, size)\n    //\n    // At high zoom levels there are a ton of pixels between the world origin\n    // and the edge of the tile. The glsl spec only guarantees 16 bits of\n    // precision for highp floats. We need more than that.\n    //\n    // The pixel_coord is passed in as two 16 bit values:\n    // pixel_coord_upper = floor(pixel_coord / 2^16)\n    // pixel_coord_lower = mod(pixel_coord, 2^16)\n    //\n    // The offset is calculated in a series of steps that should preserve this precision:\n    vec2 offset_a = mod(mod(mod(u_pixel_coord_upper, scaled_size_a) * 256.0, scaled_size_a) * 256.0 + u_pixel_coord_lower, scaled_size_a);\n    vec2 offset_b = mod(mod(mod(u_pixel_coord_upper, scaled_size_b) * 256.0, scaled_size_b) * 256.0 + u_pixel_coord_lower, scaled_size_b);\n\n    v_pos_a = (u_tile_units_to_pixels * a_pos + offset_a) / scaled_size_a;\n    v_pos_b = (u_tile_units_to_pixels * a_pos + offset_b) / scaled_size_b;\n}\n"
+    fragmentSource: "#ifdef GL_ES\r\nprecision mediump float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\nuniform float u_opacity;\r\nuniform vec2 u_pattern_tl_a;\r\nuniform vec2 u_pattern_br_a;\r\nuniform vec2 u_pattern_tl_b;\r\nuniform vec2 u_pattern_br_b;\r\nuniform float u_mix;\r\n\r\nuniform sampler2D u_image;\r\n\r\nvarying vec2 v_pos_a;\r\nvarying vec2 v_pos_b;\r\n\r\nvoid main() {\r\n\r\n    vec2 imagecoord = mod(v_pos_a, 1.0);\r\n    vec2 pos = mix(u_pattern_tl_a, u_pattern_br_a, imagecoord);\r\n    vec4 color1 = texture2D(u_image, pos);\r\n\r\n    vec2 imagecoord_b = mod(v_pos_b, 1.0);\r\n    vec2 pos2 = mix(u_pattern_tl_b, u_pattern_br_b, imagecoord_b);\r\n    vec4 color2 = texture2D(u_image, pos2);\r\n\r\n    gl_FragColor = mix(color1, color2, u_mix) * u_opacity;\r\n\r\n#ifdef OVERDRAW_INSPECTOR\r\n    gl_FragColor = vec4(1.0);\r\n#endif\r\n}\r\n",
+    vertexSource: "#ifdef GL_ES\r\nprecision highp float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\nuniform mat4 u_matrix;\r\nuniform vec2 u_pattern_size_a;\r\nuniform vec2 u_pattern_size_b;\r\nuniform vec2 u_pixel_coord_upper;\r\nuniform vec2 u_pixel_coord_lower;\r\nuniform float u_scale_a;\r\nuniform float u_scale_b;\r\nuniform float u_tile_units_to_pixels;\r\n\r\nattribute vec2 a_pos;\r\n\r\nvarying vec2 v_pos_a;\r\nvarying vec2 v_pos_b;\r\n\r\nvoid main() {\r\n    gl_Position = u_matrix * vec4(a_pos, 0, 1);\r\n    vec2 scaled_size_a = u_scale_a * u_pattern_size_a;\r\n    vec2 scaled_size_b = u_scale_b * u_pattern_size_b;\r\n\r\n    // the correct offset needs to be calculated.\r\n    //\r\n    // The offset depends on how many pixels are between the world origin and\r\n    // the edge of the tile:\r\n    // vec2 offset = mod(pixel_coord, size)\r\n    //\r\n    // At high zoom levels there are a ton of pixels between the world origin\r\n    // and the edge of the tile. The glsl spec only guarantees 16 bits of\r\n    // precision for highp floats. We need more than that.\r\n    //\r\n    // The pixel_coord is passed in as two 16 bit values:\r\n    // pixel_coord_upper = floor(pixel_coord / 2^16)\r\n    // pixel_coord_lower = mod(pixel_coord, 2^16)\r\n    //\r\n    // The offset is calculated in a series of steps that should preserve this precision:\r\n    vec2 offset_a = mod(mod(mod(u_pixel_coord_upper, scaled_size_a) * 256.0, scaled_size_a) * 256.0 + u_pixel_coord_lower, scaled_size_a);\r\n    vec2 offset_b = mod(mod(mod(u_pixel_coord_upper, scaled_size_b) * 256.0, scaled_size_b) * 256.0 + u_pixel_coord_lower, scaled_size_b);\r\n\r\n    v_pos_a = (u_tile_units_to_pixels * a_pos + offset_a) / scaled_size_a;\r\n    v_pos_b = (u_tile_units_to_pixels * a_pos + offset_b) / scaled_size_b;\r\n}\r\n"
   },
   raster: {
-    fragmentSource: "#ifdef GL_ES\nprecision mediump float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\nuniform float u_opacity0;\nuniform float u_opacity1;\nuniform sampler2D u_image0;\nuniform sampler2D u_image1;\nvarying vec2 v_pos0;\nvarying vec2 v_pos1;\n\nuniform float u_brightness_low;\nuniform float u_brightness_high;\n\nuniform float u_saturation_factor;\nuniform float u_contrast_factor;\nuniform vec3 u_spin_weights;\n\nvoid main() {\n\n    // read and cross-fade colors from the main and parent tiles\n    vec4 color0 = texture2D(u_image0, v_pos0);\n    vec4 color1 = texture2D(u_image1, v_pos1);\n    vec4 color = color0 * u_opacity0 + color1 * u_opacity1;\n    vec3 rgb = color.rgb;\n\n    // spin\n    rgb = vec3(\n        dot(rgb, u_spin_weights.xyz),\n        dot(rgb, u_spin_weights.zxy),\n        dot(rgb, u_spin_weights.yzx));\n\n    // saturation\n    float average = (color.r + color.g + color.b) / 3.0;\n    rgb += (average - rgb) * u_saturation_factor;\n\n    // contrast\n    rgb = (rgb - 0.5) * u_contrast_factor + 0.5;\n\n    // brightness\n    vec3 u_high_vec = vec3(u_brightness_low, u_brightness_low, u_brightness_low);\n    vec3 u_low_vec = vec3(u_brightness_high, u_brightness_high, u_brightness_high);\n\n    gl_FragColor = vec4(mix(u_high_vec, u_low_vec, rgb), color.a);\n\n#ifdef OVERDRAW_INSPECTOR\n    gl_FragColor = vec4(1.0);\n#endif\n}\n",
-    vertexSource: "#ifdef GL_ES\nprecision highp float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\nuniform mat4 u_matrix;\nuniform vec2 u_tl_parent;\nuniform float u_scale_parent;\nuniform float u_buffer_scale;\n\nattribute vec2 a_pos;\nattribute vec2 a_texture_pos;\n\nvarying vec2 v_pos0;\nvarying vec2 v_pos1;\n\nvoid main() {\n    gl_Position = u_matrix * vec4(a_pos, 0, 1);\n    v_pos0 = (((a_texture_pos / 32767.0) - 0.5) / u_buffer_scale ) + 0.5;\n    v_pos1 = (v_pos0 * u_scale_parent) + u_tl_parent;\n}\n"
+    fragmentSource: "#ifdef GL_ES\r\nprecision mediump float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\nuniform float u_opacity0;\r\nuniform float u_opacity1;\r\nuniform sampler2D u_image0;\r\nuniform sampler2D u_image1;\r\nvarying vec2 v_pos0;\r\nvarying vec2 v_pos1;\r\n\r\nuniform float u_brightness_low;\r\nuniform float u_brightness_high;\r\n\r\nuniform float u_saturation_factor;\r\nuniform float u_contrast_factor;\r\nuniform vec3 u_spin_weights;\r\n\r\nvoid main() {\r\n\r\n    // read and cross-fade colors from the main and parent tiles\r\n    vec4 color0 = texture2D(u_image0, v_pos0);\r\n    vec4 color1 = texture2D(u_image1, v_pos1);\r\n    vec4 color = color0 * u_opacity0 + color1 * u_opacity1;\r\n    vec3 rgb = color.rgb;\r\n\r\n    // spin\r\n    rgb = vec3(\r\n        dot(rgb, u_spin_weights.xyz),\r\n        dot(rgb, u_spin_weights.zxy),\r\n        dot(rgb, u_spin_weights.yzx));\r\n\r\n    // saturation\r\n    float average = (color.r + color.g + color.b) / 3.0;\r\n    rgb += (average - rgb) * u_saturation_factor;\r\n\r\n    // contrast\r\n    rgb = (rgb - 0.5) * u_contrast_factor + 0.5;\r\n\r\n    // brightness\r\n    vec3 u_high_vec = vec3(u_brightness_low, u_brightness_low, u_brightness_low);\r\n    vec3 u_low_vec = vec3(u_brightness_high, u_brightness_high, u_brightness_high);\r\n\r\n    gl_FragColor = vec4(mix(u_high_vec, u_low_vec, rgb), color.a);\r\n\r\n#ifdef OVERDRAW_INSPECTOR\r\n    gl_FragColor = vec4(1.0);\r\n#endif\r\n}\r\n",
+    vertexSource: "#ifdef GL_ES\r\nprecision highp float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\nuniform mat4 u_matrix;\r\nuniform vec2 u_tl_parent;\r\nuniform float u_scale_parent;\r\nuniform float u_buffer_scale;\r\n\r\nattribute vec2 a_pos;\r\nattribute vec2 a_texture_pos;\r\n\r\nvarying vec2 v_pos0;\r\nvarying vec2 v_pos1;\r\n\r\nvoid main() {\r\n    gl_Position = u_matrix * vec4(a_pos, 0, 1);\r\n    v_pos0 = (((a_texture_pos / 32767.0) - 0.5) / u_buffer_scale ) + 0.5;\r\n    v_pos1 = (v_pos0 * u_scale_parent) + u_tl_parent;\r\n}\r\n"
   },
   icon: {
-    fragmentSource: "#ifdef GL_ES\nprecision mediump float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\nuniform sampler2D u_texture;\nuniform sampler2D u_fadetexture;\nuniform lowp float u_opacity;\n\nvarying vec2 v_tex;\nvarying vec2 v_fade_tex;\n\nvoid main() {\n    lowp float alpha = texture2D(u_fadetexture, v_fade_tex).a * u_opacity;\n    gl_FragColor = texture2D(u_texture, v_tex) * alpha;\n\n#ifdef OVERDRAW_INSPECTOR\n    gl_FragColor = vec4(1.0);\n#endif\n}\n",
-    vertexSource: "#ifdef GL_ES\nprecision highp float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\nattribute vec2 a_pos;\nattribute vec2 a_offset;\nattribute vec2 a_texture_pos;\nattribute vec4 a_data;\n\n\n// matrix is for the vertex position.\nuniform mat4 u_matrix;\n\nuniform mediump float u_zoom;\nuniform bool u_rotate_with_map;\nuniform vec2 u_extrude_scale;\n\nuniform vec2 u_texsize;\n\nvarying vec2 v_tex;\nvarying vec2 v_fade_tex;\n\nvoid main() {\n    vec2 a_tex = a_texture_pos.xy;\n    mediump float a_labelminzoom = a_data[0];\n    mediump vec2 a_zoom = a_data.pq;\n    mediump float a_minzoom = a_zoom[0];\n    mediump float a_maxzoom = a_zoom[1];\n\n    // u_zoom is the current zoom level adjusted for the change in font size\n    mediump float z = 2.0 - step(a_minzoom, u_zoom) - (1.0 - step(a_maxzoom, u_zoom));\n\n    vec2 extrude = u_extrude_scale * (a_offset / 64.0);\n    if (u_rotate_with_map) {\n        gl_Position = u_matrix * vec4(a_pos + extrude, 0, 1);\n        gl_Position.z += z * gl_Position.w;\n    } else {\n        gl_Position = u_matrix * vec4(a_pos, 0, 1) + vec4(extrude, 0, 0);\n    }\n\n    v_tex = a_tex / u_texsize;\n    v_fade_tex = vec2(a_labelminzoom / 255.0, 0.0);\n}\n"
+    fragmentSource: "#ifdef GL_ES\r\nprecision mediump float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\nuniform sampler2D u_texture;\r\nuniform sampler2D u_fadetexture;\r\nuniform lowp float u_opacity;\r\n\r\nvarying vec2 v_tex;\r\nvarying vec2 v_fade_tex;\r\n\r\nvoid main() {\r\n    lowp float alpha = texture2D(u_fadetexture, v_fade_tex).a * u_opacity;\r\n    gl_FragColor = texture2D(u_texture, v_tex) * alpha;\r\n\r\n#ifdef OVERDRAW_INSPECTOR\r\n    gl_FragColor = vec4(1.0);\r\n#endif\r\n}\r\n",
+    vertexSource: "#ifdef GL_ES\r\nprecision highp float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\nattribute vec2 a_pos;\r\nattribute vec2 a_offset;\r\nattribute vec2 a_texture_pos;\r\nattribute vec4 a_data;\r\n\r\n\r\n// matrix is for the vertex position.\r\nuniform mat4 u_matrix;\r\n\r\nuniform mediump float u_zoom;\r\nuniform bool u_rotate_with_map;\r\nuniform vec2 u_extrude_scale;\r\n\r\nuniform vec2 u_texsize;\r\n\r\nvarying vec2 v_tex;\r\nvarying vec2 v_fade_tex;\r\n\r\nvoid main() {\r\n    vec2 a_tex = a_texture_pos.xy;\r\n    mediump float a_labelminzoom = a_data[0];\r\n    mediump vec2 a_zoom = a_data.pq;\r\n    mediump float a_minzoom = a_zoom[0];\r\n    mediump float a_maxzoom = a_zoom[1];\r\n\r\n    // u_zoom is the current zoom level adjusted for the change in font size\r\n    mediump float z = 2.0 - step(a_minzoom, u_zoom) - (1.0 - step(a_maxzoom, u_zoom));\r\n\r\n    vec2 extrude = u_extrude_scale * (a_offset / 64.0);\r\n    if (u_rotate_with_map) {\r\n        gl_Position = u_matrix * vec4(a_pos + extrude, 0, 1);\r\n        gl_Position.z += z * gl_Position.w;\r\n    } else {\r\n        gl_Position = u_matrix * vec4(a_pos, 0, 1) + vec4(extrude, 0, 0);\r\n    }\r\n\r\n    v_tex = a_tex / u_texsize;\r\n    v_fade_tex = vec2(a_labelminzoom / 255.0, 0.0);\r\n}\r\n"
   },
   sdf: {
-    fragmentSource: "#ifdef GL_ES\nprecision mediump float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\nuniform sampler2D u_texture;\nuniform sampler2D u_fadetexture;\nuniform lowp vec4 u_color;\nuniform lowp float u_opacity;\nuniform lowp float u_buffer;\nuniform lowp float u_gamma;\n\nvarying vec2 v_tex;\nvarying vec2 v_fade_tex;\nvarying float v_gamma_scale;\n\nvoid main() {\n    lowp float dist = texture2D(u_texture, v_tex).a;\n    lowp float fade_alpha = texture2D(u_fadetexture, v_fade_tex).a;\n    lowp float gamma = u_gamma * v_gamma_scale;\n    lowp float alpha = smoothstep(u_buffer - gamma, u_buffer + gamma, dist) * fade_alpha;\n\n    gl_FragColor = u_color * (alpha * u_opacity);\n\n#ifdef OVERDRAW_INSPECTOR\n    gl_FragColor = vec4(1.0);\n#endif\n}\n",
-    vertexSource: "#ifdef GL_ES\nprecision highp float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\nconst float PI = 3.141592653589793;\n\nattribute vec2 a_pos;\nattribute vec2 a_offset;\nattribute vec2 a_texture_pos;\nattribute vec4 a_data;\n\n\n// matrix is for the vertex position.\nuniform mat4 u_matrix;\n\nuniform mediump float u_zoom;\nuniform bool u_rotate_with_map;\nuniform bool u_pitch_with_map;\nuniform mediump float u_pitch;\nuniform mediump float u_bearing;\nuniform mediump float u_aspect_ratio;\nuniform vec2 u_extrude_scale;\n\nuniform vec2 u_texsize;\n\nvarying vec2 v_tex;\nvarying vec2 v_fade_tex;\nvarying float v_gamma_scale;\n\nvoid main() {\n    vec2 a_tex = a_texture_pos.xy;\n    mediump float a_labelminzoom = a_data[0];\n    mediump vec2 a_zoom = a_data.pq;\n    mediump float a_minzoom = a_zoom[0];\n    mediump float a_maxzoom = a_zoom[1];\n\n    // u_zoom is the current zoom level adjusted for the change in font size\n    mediump float z = 2.0 - step(a_minzoom, u_zoom) - (1.0 - step(a_maxzoom, u_zoom));\n\n    // pitch-alignment: map\n    // rotation-alignment: map | viewport\n    if (u_pitch_with_map) {\n        lowp float angle = u_rotate_with_map ? (a_data[1] / 256.0 * 2.0 * PI) : u_bearing;\n        lowp float asin = sin(angle);\n        lowp float acos = cos(angle);\n        mat2 RotationMatrix = mat2(acos, asin, -1.0 * asin, acos);\n        vec2 offset = RotationMatrix * a_offset;\n        vec2 extrude = u_extrude_scale * (offset / 64.0);\n        gl_Position = u_matrix * vec4(a_pos + extrude, 0, 1);\n        gl_Position.z += z * gl_Position.w;\n    // pitch-alignment: viewport\n    // rotation-alignment: map\n    } else if (u_rotate_with_map) {\n        // foreshortening factor to apply on pitched maps\n        // as a label goes from horizontal <=> vertical in angle\n        // it goes from 0% foreshortening to up to around 70% foreshortening\n        lowp float pitchfactor = 1.0 - cos(u_pitch * sin(u_pitch * 0.75));\n\n        lowp float lineangle = a_data[1] / 256.0 * 2.0 * PI;\n\n        // use the lineangle to position points a,b along the line\n        // project the points and calculate the label angle in projected space\n        // this calculation allows labels to be rendered unskewed on pitched maps\n        vec4 a = u_matrix * vec4(a_pos, 0, 1);\n        vec4 b = u_matrix * vec4(a_pos + vec2(cos(lineangle),sin(lineangle)), 0, 1);\n        lowp float angle = atan((b[1]/b[3] - a[1]/a[3])/u_aspect_ratio, b[0]/b[3] - a[0]/a[3]);\n        lowp float asin = sin(angle);\n        lowp float acos = cos(angle);\n        mat2 RotationMatrix = mat2(acos, -1.0 * asin, asin, acos);\n\n        vec2 offset = RotationMatrix * (vec2((1.0-pitchfactor)+(pitchfactor*cos(angle*2.0)), 1.0) * a_offset);\n        vec2 extrude = u_extrude_scale * (offset / 64.0);\n        gl_Position = u_matrix * vec4(a_pos, 0, 1) + vec4(extrude, 0, 0);\n        gl_Position.z += z * gl_Position.w;\n    // pitch-alignment: viewport\n    // rotation-alignment: viewport\n    } else {\n        vec2 extrude = u_extrude_scale * (a_offset / 64.0);\n        gl_Position = u_matrix * vec4(a_pos, 0, 1) + vec4(extrude, 0, 0);\n    }\n\n    v_gamma_scale = (gl_Position.w - 0.5);\n\n    v_tex = a_tex / u_texsize;\n    v_fade_tex = vec2(a_labelminzoom / 255.0, 0.0);\n}\n"
+    fragmentSource: "#ifdef GL_ES\r\nprecision mediump float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\nuniform sampler2D u_texture;\r\nuniform sampler2D u_fadetexture;\r\nuniform lowp vec4 u_color;\r\nuniform lowp float u_opacity;\r\nuniform lowp float u_buffer;\r\nuniform lowp float u_gamma;\r\n\r\nvarying vec2 v_tex;\r\nvarying vec2 v_fade_tex;\r\nvarying float v_gamma_scale;\r\n\r\nvoid main() {\r\n    lowp float dist = texture2D(u_texture, v_tex).a;\r\n    lowp float fade_alpha = texture2D(u_fadetexture, v_fade_tex).a;\r\n    lowp float gamma = u_gamma * v_gamma_scale;\r\n    lowp float alpha = smoothstep(u_buffer - gamma, u_buffer + gamma, dist) * fade_alpha;\r\n\r\n    gl_FragColor = u_color * (alpha * u_opacity);\r\n\r\n#ifdef OVERDRAW_INSPECTOR\r\n    gl_FragColor = vec4(1.0);\r\n#endif\r\n}\r\n",
+    vertexSource: "#ifdef GL_ES\r\nprecision highp float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\nconst float PI = 3.141592653589793;\r\n\r\nattribute vec2 a_pos;\r\nattribute vec2 a_offset;\r\nattribute vec2 a_texture_pos;\r\nattribute vec4 a_data;\r\n\r\n\r\n// matrix is for the vertex position.\r\nuniform mat4 u_matrix;\r\n\r\nuniform mediump float u_zoom;\r\nuniform bool u_rotate_with_map;\r\nuniform bool u_pitch_with_map;\r\nuniform mediump float u_pitch;\r\nuniform mediump float u_bearing;\r\nuniform mediump float u_aspect_ratio;\r\nuniform vec2 u_extrude_scale;\r\n\r\nuniform vec2 u_texsize;\r\n\r\nvarying vec2 v_tex;\r\nvarying vec2 v_fade_tex;\r\nvarying float v_gamma_scale;\r\n\r\nvoid main() {\r\n    vec2 a_tex = a_texture_pos.xy;\r\n    mediump float a_labelminzoom = a_data[0];\r\n    mediump vec2 a_zoom = a_data.pq;\r\n    mediump float a_minzoom = a_zoom[0];\r\n    mediump float a_maxzoom = a_zoom[1];\r\n\r\n    // u_zoom is the current zoom level adjusted for the change in font size\r\n    mediump float z = 2.0 - step(a_minzoom, u_zoom) - (1.0 - step(a_maxzoom, u_zoom));\r\n\r\n    // pitch-alignment: map\r\n    // rotation-alignment: map | viewport\r\n    if (u_pitch_with_map) {\r\n        lowp float angle = u_rotate_with_map ? (a_data[1] / 256.0 * 2.0 * PI) : u_bearing;\r\n        lowp float asin = sin(angle);\r\n        lowp float acos = cos(angle);\r\n        mat2 RotationMatrix = mat2(acos, asin, -1.0 * asin, acos);\r\n        vec2 offset = RotationMatrix * a_offset;\r\n        vec2 extrude = u_extrude_scale * (offset / 64.0);\r\n        gl_Position = u_matrix * vec4(a_pos + extrude, 0, 1);\r\n        gl_Position.z += z * gl_Position.w;\r\n    // pitch-alignment: viewport\r\n    // rotation-alignment: map\r\n    } else if (u_rotate_with_map) {\r\n        // foreshortening factor to apply on pitched maps\r\n        // as a label goes from horizontal <=> vertical in angle\r\n        // it goes from 0% foreshortening to up to around 70% foreshortening\r\n        lowp float pitchfactor = 1.0 - cos(u_pitch * sin(u_pitch * 0.75));\r\n\r\n        lowp float lineangle = a_data[1] / 256.0 * 2.0 * PI;\r\n\r\n        // use the lineangle to position points a,b along the line\r\n        // project the points and calculate the label angle in projected space\r\n        // this calculation allows labels to be rendered unskewed on pitched maps\r\n        vec4 a = u_matrix * vec4(a_pos, 0, 1);\r\n        vec4 b = u_matrix * vec4(a_pos + vec2(cos(lineangle),sin(lineangle)), 0, 1);\r\n        lowp float angle = atan((b[1]/b[3] - a[1]/a[3])/u_aspect_ratio, b[0]/b[3] - a[0]/a[3]);\r\n        lowp float asin = sin(angle);\r\n        lowp float acos = cos(angle);\r\n        mat2 RotationMatrix = mat2(acos, -1.0 * asin, asin, acos);\r\n\r\n        vec2 offset = RotationMatrix * (vec2((1.0-pitchfactor)+(pitchfactor*cos(angle*2.0)), 1.0) * a_offset);\r\n        vec2 extrude = u_extrude_scale * (offset / 64.0);\r\n        gl_Position = u_matrix * vec4(a_pos, 0, 1) + vec4(extrude, 0, 0);\r\n        gl_Position.z += z * gl_Position.w;\r\n    // pitch-alignment: viewport\r\n    // rotation-alignment: viewport\r\n    } else {\r\n        vec2 extrude = u_extrude_scale * (a_offset / 64.0);\r\n        gl_Position = u_matrix * vec4(a_pos, 0, 1) + vec4(extrude, 0, 0);\r\n    }\r\n\r\n    v_gamma_scale = (gl_Position.w - 0.5);\r\n\r\n    v_tex = a_tex / u_texsize;\r\n    v_fade_tex = vec2(a_labelminzoom / 255.0, 0.0);\r\n}\r\n"
   },
   collisionbox: {
-    fragmentSource: "#ifdef GL_ES\nprecision mediump float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\nuniform float u_zoom;\nuniform float u_maxzoom;\n\nvarying float v_max_zoom;\nvarying float v_placement_zoom;\n\nvoid main() {\n\n    float alpha = 0.5;\n\n    gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0) * alpha;\n\n    if (v_placement_zoom > u_zoom) {\n        gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0) * alpha;\n    }\n\n    if (u_zoom >= v_max_zoom) {\n        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0) * alpha * 0.25;\n    }\n\n    if (v_placement_zoom >= u_maxzoom) {\n        gl_FragColor = vec4(0.0, 0.0, 1.0, 1.0) * alpha * 0.2;\n    }\n}\n",
-    vertexSource: "#ifdef GL_ES\nprecision highp float;\n#else\n#define lowp\n#define mediump\n#define highp\n#endif\n\nattribute vec2 a_pos;\nattribute vec2 a_extrude;\nattribute vec2 a_data;\n\nuniform mat4 u_matrix;\nuniform float u_scale;\n\nvarying float v_max_zoom;\nvarying float v_placement_zoom;\n\nvoid main() {\n    gl_Position = u_matrix * vec4(a_pos + a_extrude / u_scale, 0.0, 1.0);\n\n    v_max_zoom = a_data.x;\n    v_placement_zoom = a_data.y;\n}\n"
+    fragmentSource: "#ifdef GL_ES\r\nprecision mediump float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\nuniform float u_zoom;\r\nuniform float u_maxzoom;\r\n\r\nvarying float v_max_zoom;\r\nvarying float v_placement_zoom;\r\n\r\nvoid main() {\r\n\r\n    float alpha = 0.5;\r\n\r\n    gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0) * alpha;\r\n\r\n    if (v_placement_zoom > u_zoom) {\r\n        gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0) * alpha;\r\n    }\r\n\r\n    if (u_zoom >= v_max_zoom) {\r\n        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0) * alpha * 0.25;\r\n    }\r\n\r\n    if (v_placement_zoom >= u_maxzoom) {\r\n        gl_FragColor = vec4(0.0, 0.0, 1.0, 1.0) * alpha * 0.2;\r\n    }\r\n}\r\n",
+    vertexSource: "#ifdef GL_ES\r\nprecision highp float;\r\n#else\r\n#define lowp\r\n#define mediump\r\n#define highp\r\n#endif\r\n\r\nattribute vec2 a_pos;\r\nattribute vec2 a_extrude;\r\nattribute vec2 a_data;\r\n\r\nuniform mat4 u_matrix;\r\nuniform float u_scale;\r\n\r\nvarying float v_max_zoom;\r\nvarying float v_placement_zoom;\r\n\r\nvoid main() {\r\n    gl_Position = u_matrix * vec4(a_pos + a_extrude / u_scale, 0.0, 1.0);\r\n\r\n    v_max_zoom = a_data.x;\r\n    v_placement_zoom = a_data.y;\r\n}\r\n"
   }
 };
 
-module.exports.util = "float evaluate_zoom_function_1(const vec4 values, const float t) {\n    if (t < 1.0) {\n        return mix(values[0], values[1], t);\n    } else if (t < 2.0) {\n        return mix(values[1], values[2], t - 1.0);\n    } else {\n        return mix(values[2], values[3], t - 2.0);\n    }\n}\nvec4 evaluate_zoom_function_4(const vec4 value0, const vec4 value1, const vec4 value2, const vec4 value3, const float t) {\n    if (t < 1.0) {\n        return mix(value0, value1, t);\n    } else if (t < 2.0) {\n        return mix(value1, value2, t - 1.0);\n    } else {\n        return mix(value2, value3, t - 2.0);\n    }\n}\n";
+module.exports.util = "float evaluate_zoom_function_1(const vec4 values, const float t) {\r\n    if (t < 1.0) {\r\n        return mix(values[0], values[1], t);\r\n    } else if (t < 2.0) {\r\n        return mix(values[1], values[2], t - 1.0);\r\n    } else {\r\n        return mix(values[2], values[3], t - 2.0);\r\n    }\r\n}\r\nvec4 evaluate_zoom_function_4(const vec4 value0, const vec4 value1, const vec4 value2, const vec4 value3, const float t) {\r\n    if (t < 1.0) {\r\n        return mix(value0, value1, t);\r\n    } else if (t < 2.0) {\r\n        return mix(value1, value2, t - 1.0);\r\n    } else {\r\n        return mix(value2, value3, t - 2.0);\r\n    }\r\n}\r\n";
 
 },{"path":184}],43:[function(require,module,exports){
 'use strict';
@@ -40227,7 +40354,7 @@ module.exports={
         "spec": ">=0.22.0 <0.23.0",
         "type": "range"
       },
-      "/home/etienne/Documents/plotly/plotly.js"
+      "C:\\wwwin\\plotly.js"
     ]
   ],
   "_from": "mapbox-gl@>=0.22.0 <0.23.0",
@@ -40261,7 +40388,7 @@ module.exports={
   "_shasum": "92a965547d4c2f24c22cbc487eeda48694cb627a",
   "_shrinkwrap": null,
   "_spec": "mapbox-gl@^0.22.0",
-  "_where": "/home/etienne/Documents/plotly/plotly.js",
+  "_where": "C:\\wwwin\\plotly.js",
   "browser": {
     "./js/util/ajax.js": "./js/util/browser/ajax.js",
     "./js/util/browser.js": "./js/util/browser/browser.js",
@@ -41673,6 +41800,10 @@ process.off = noop;
 process.removeListener = noop;
 process.removeAllListeners = noop;
 process.emit = noop;
+process.prependListener = noop;
+process.prependOnceListener = noop;
+
+process.listeners = function (name) { return [] }
 
 process.binding = function (name) {
     throw new Error('process.binding is not supported');
@@ -42789,7 +42920,16 @@ SuperCluster.prototype = {
         radius: 40,   // cluster radius in pixels
         extent: 512,  // tile extent (radius is calculated relative to it)
         nodeSize: 64, // size of the KD-tree leaf node, affects performance
-        log: false    // whether to log timing info
+        log: false,   // whether to log timing info
+
+        // a reduce function for calculating custom cluster properties
+        reduce: null, // function (accumulated, props) { accumulated.sum += props.sum; }
+
+        // initial properties of a cluster (before running the reducer)
+        initial: function () { return {}; }, // function () { return {sum: 0}; },
+
+        // properties to use for individual points when running the reducer
+        map: function (props) { return props; } // function (props) { return {sum: props.my_value}; },
     },
 
     load: function (points) {
@@ -42833,9 +42973,33 @@ SuperCluster.prototype = {
         var clusters = [];
         for (var i = 0; i < ids.length; i++) {
             var c = tree.points[ids[i]];
-            clusters.push(c.id !== -1 ? this.points[c.id] : getClusterJSON(c));
+            clusters.push(c.numPoints ? getClusterJSON(c) : this.points[c.id]);
         }
         return clusters;
+    },
+
+    getChildren: function (clusterId, clusterZoom) {
+        var origin = this.trees[clusterZoom + 1].points[clusterId];
+        var r = this.options.radius / (this.options.extent * Math.pow(2, clusterZoom));
+        var points = this.trees[clusterZoom + 1].within(origin.x, origin.y, r);
+        var children = [];
+        for (var i = 0; i < points.length; i++) {
+            var c = this.trees[clusterZoom + 1].points[points[i]];
+            if (c.parentId === clusterId) {
+                children.push(c.numPoints ? getClusterJSON(c) : this.points[c.id]);
+            }
+        }
+        return children;
+    },
+
+    getLeaves: function (clusterId, clusterZoom, limit, offset) {
+        limit = limit || 10;
+        offset = offset || 0;
+
+        var leaves = [];
+        this._appendLeaves(leaves, clusterId, clusterZoom, limit, offset, 0);
+
+        return leaves;
     },
 
     getTile: function (z, x, y) {
@@ -42869,6 +43033,45 @@ SuperCluster.prototype = {
         return tile.features.length ? tile : null;
     },
 
+    getClusterExpansionZoom: function (clusterId, clusterZoom) {
+        while (clusterZoom < this.options.maxZoom) {
+            var children = this.getChildren(clusterId, clusterZoom);
+            clusterZoom++;
+            if (children.length !== 1) break;
+            clusterId = children[0].properties.cluster_id;
+        }
+        return clusterZoom;
+    },
+
+    _appendLeaves: function (result, clusterId, clusterZoom, limit, offset, skipped) {
+        var children = this.getChildren(clusterId, clusterZoom);
+
+        for (var i = 0; i < children.length; i++) {
+            var props = children[i].properties;
+
+            if (props.cluster) {
+                if (skipped + props.point_count <= offset) {
+                    // skip the whole cluster
+                    skipped += props.point_count;
+                } else {
+                    // enter the cluster
+                    skipped = this._appendLeaves(
+                        result, props.cluster_id, clusterZoom + 1, limit, offset, skipped);
+                    // exit the cluster
+                }
+            } else if (skipped < offset) {
+                // skip a single point
+                skipped++;
+            } else {
+                // add a single point
+                result.push(children[i]);
+            }
+            if (result.length === limit) break;
+        }
+
+        return skipped;
+    },
+
     _addTileFeatures: function (ids, points, x, y, z2, tile) {
         for (var i = 0; i < ids.length; i++) {
             var c = points[ids[i]];
@@ -42878,7 +43081,7 @@ SuperCluster.prototype = {
                     Math.round(this.options.extent * (c.x * z2 - x)),
                     Math.round(this.options.extent * (c.y * z2 - y))
                 ]],
-                tags: c.id !== -1 ? this.points[c.id].properties : getClusterProperties(c)
+                tags: c.numPoints ? getClusterProperties(c) : this.points[c.id].properties
             });
         }
     },
@@ -42902,43 +43105,75 @@ SuperCluster.prototype = {
             var tree = this.trees[zoom + 1];
             var neighborIds = tree.within(p.x, p.y, r);
 
-            var foundNeighbors = false;
-            var numPoints = p.numPoints;
+            var numPoints = p.numPoints || 1;
             var wx = p.x * numPoints;
             var wy = p.y * numPoints;
+
+            var clusterProperties = null;
+
+            if (this.options.reduce) {
+                clusterProperties = this.options.initial();
+                this._accumulate(clusterProperties, p);
+            }
 
             for (var j = 0; j < neighborIds.length; j++) {
                 var b = tree.points[neighborIds[j]];
                 // filter out neighbors that are too far or already processed
                 if (zoom < b.zoom) {
-                    foundNeighbors = true;
+                    var numPoints2 = b.numPoints || 1;
                     b.zoom = zoom; // save the zoom (so it doesn't get processed twice)
-                    wx += b.x * b.numPoints; // accumulate coordinates for calculating weighted center
-                    wy += b.y * b.numPoints;
-                    numPoints += b.numPoints;
+                    wx += b.x * numPoints2; // accumulate coordinates for calculating weighted center
+                    wy += b.y * numPoints2;
+                    numPoints += numPoints2;
+                    b.parentId = i;
+
+                    if (this.options.reduce) {
+                        this._accumulate(clusterProperties, b);
+                    }
                 }
             }
 
-            clusters.push(foundNeighbors ? createCluster(wx / numPoints, wy / numPoints, numPoints, -1) : p);
+            if (numPoints === 1) {
+                clusters.push(p);
+            } else {
+                p.parentId = i;
+                clusters.push(createCluster(wx / numPoints, wy / numPoints, numPoints, i, clusterProperties));
+            }
         }
 
         return clusters;
+    },
+
+    _accumulate: function (clusterProperties, point) {
+        var properties = point.numPoints ?
+            point.properties :
+            this.options.map(this.points[point.id].properties);
+
+        this.options.reduce(clusterProperties, properties);
     }
 };
 
-function createCluster(x, y, numPoints, id) {
+function createCluster(x, y, numPoints, id, properties) {
     return {
         x: x, // weighted cluster center
         y: y,
         zoom: Infinity, // the last zoom the cluster was processed at
-        id: id, // index of the source feature in the original input array
+        id: id, // index of the first child of the cluster in the zoom level tree
+        properties: properties,
+        parentId: -1, // parent cluster id
         numPoints: numPoints
     };
 }
 
-function createPointCluster(p, i) {
+function createPointCluster(p, id) {
     var coords = p.geometry.coordinates;
-    return createCluster(lngX(coords[0]), latY(coords[1]), 1, i);
+    return {
+        x: lngX(coords[0]), // projected point coordinates
+        y: latY(coords[1]),
+        zoom: Infinity, // the last zoom the point was processed at
+        id: id, // index of the source feature in the original input array
+        parentId: -1 // parent cluster id
+    };
 }
 
 function getClusterJSON(cluster) {
@@ -42956,11 +43191,12 @@ function getClusterProperties(cluster) {
     var count = cluster.numPoints;
     var abbrev = count >= 10000 ? Math.round(count / 1000) + 'k' :
                  count >= 1000 ? (Math.round(count / 100) / 10) + 'k' : count;
-    return {
+    return extend(extend({}, cluster.properties), {
         cluster: true,
+        cluster_id: cluster.id,
         point_count: count,
         point_count_abbreviated: abbrev
-    };
+    });
 }
 
 // longitude/latitude to spherical mercator in [0..1] range
@@ -55400,22 +55636,29 @@ function setupDragElement(rangeSlider, gd, axisOpts, opts) {
     var slideBox = rangeSlider.select('rect.' + constants.slideBoxClassName).node(),
         grabAreaMin = rangeSlider.select('rect.' + constants.grabAreaMinClassName).node(),
         grabAreaMax = rangeSlider.select('rect.' + constants.grabAreaMaxClassName).node();
+    var moveHandler = function(e) {
 
-    rangeSlider.on('mousedown', function() {
         var event = d3.event,
             target = event.target,
-            startX = event.clientX,
+            startX = event.clientX || event.touches[0].clientX,
             offsetX = startX - rangeSlider.node().getBoundingClientRect().left,
             minVal = opts.d2p(axisOpts.range[0]),
             maxVal = opts.d2p(axisOpts.range[1]);
 
         var dragCover = dragElement.coverSlip();
+        if(event.type==='touchstart') {
+           rangeSlider.on('touchmove', mouseMove);
+           rangeSlider.on('touchend', mouseUp);
+        } else {
+           dragCover.addEventListener('mousemove', mouseMove);
+           dragCover.addEventListener('mouseup', mouseUp);
+        }
 
-        dragCover.addEventListener('mousemove', mouseMove);
-        dragCover.addEventListener('mouseup', mouseUp);
+        function mouseMove(ev) {
 
-        function mouseMove(e) {
-            var delta = +e.clientX - startX;
+           var e = d3.event || ev;
+           var xcord = e.clientX || e.touches[0].clientX;
+            var delta = +xcord - startX;
             var pixelMin, pixelMax, cursor;
 
             switch(target) {
@@ -55449,20 +55692,31 @@ function setupDragElement(rangeSlider, gd, axisOpts, opts) {
                 pixelMax = pixelMin;
                 pixelMin = tmp;
             }
+            if(pixelMin<0) pixelMin=0;
+            if(pixelMax<0) pixelMax=0;
+            if(pixelMax>opts._width) pixelMax=opts._width;
+            if(pixelMin>opts._width) pixelMin=opts._width;
 
             opts._pixelMin = pixelMin;
             opts._pixelMax = pixelMax;
 
+
             setCursor(d3.select(dragCover), cursor);
-            setDataRange(rangeSlider, gd, axisOpts, opts);
+
+            setPixelRange(rangeSlider, gd, axisOpts, opts);
         }
 
         function mouseUp() {
-            dragCover.removeEventListener('mousemove', mouseMove);
-            dragCover.removeEventListener('mouseup', mouseUp);
+            setDataRange(rangeSlider, gd, axisOpts, opts);
+            rangeSlider.on('touchmove', null);
+            rangeSlider.on('touchend', null);
+            dragCover.removeEventListener('mousemove',mouseMove);
+            dragCover.removeEventListener('mouseup',mouseUp);
             Lib.removeElement(dragCover);
         }
-    });
+    };
+    rangeSlider.on('touchstart', moveHandler);
+    rangeSlider.on('mousedown', moveHandler);
 }
 
 function setDataRange(rangeSlider, gd, axisOpts, opts) {
@@ -55484,9 +55738,18 @@ function setPixelRange(rangeSlider, gd, axisOpts, opts) {
     function clamp(v) {
         return Lib.constrain(v, 0, opts._width);
     }
+    var pixelMin,pixelMax;
+    if(opts._pixelMin!==undefined&&opts._pixelMin!==null) {
+      pixelMin=opts._pixelMin;
+    } else {
+      pixelMin=clamp(opts.d2p(axisOpts.range[0]));
+    }
+    if(opts._pixelMax!==undefined&&opts._pixelMax!==null) {
+      pixelMax=opts._pixelMax;
+    } else {
+      pixelMax=clamp(opts.d2p(axisOpts.range[1]));
+    }
 
-    var pixelMin = clamp(opts.d2p(axisOpts.range[0])),
-        pixelMax = clamp(opts.d2p(axisOpts.range[1]));
 
     rangeSlider.select('rect.' + constants.slideBoxClassName)
         .attr('x', pixelMin)
@@ -55504,6 +55767,7 @@ function setPixelRange(rangeSlider, gd, axisOpts, opts) {
 
     rangeSlider.select('g.' + constants.grabberMaxClassName)
         .attr('transform', 'translate(' + pixelMax + ',0)');
+
 }
 
 function drawBg(rangeSlider, gd, axisOpts, opts) {

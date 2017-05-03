@@ -1,9 +1,3 @@
-/**
-* plotly.js (cartesian) v1.19.2
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-* Licensed under the MIT license
-*/
 (function(f){if(typeof exports==="object"&&typeof module!=="undefined"){module.exports=f()}else if(typeof define==="function"&&define.amd){define([],f)}else{var g;if(typeof window!=="undefined"){g=window}else if(typeof global!=="undefined"){g=global}else if(typeof self!=="undefined"){g=self}else{g=this}g.Plotly = f()}})(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 'use strict';
 
@@ -266,7 +260,7 @@ module.exports = require('../src/traces/heatmap');
 
 module.exports = require('../src/traces/histogram');
 
-},{"../src/traces/histogram":247}],9:[function(require,module,exports){
+},{"../src/traces/histogram":255}],9:[function(require,module,exports){
 /**
 * Copyright 2012-2016, Plotly, Inc.
 * All rights reserved.
@@ -279,7 +273,7 @@ module.exports = require('../src/traces/histogram');
 
 module.exports = require('../src/traces/histogram2d');
 
-},{"../src/traces/histogram2d":252}],10:[function(require,module,exports){
+},{"../src/traces/histogram2d":244}],10:[function(require,module,exports){
 /**
 * Copyright 2012-2016, Plotly, Inc.
 * All rights reserved.
@@ -292,7 +286,7 @@ module.exports = require('../src/traces/histogram2d');
 
 module.exports = require('../src/traces/histogram2dcontour');
 
-},{"../src/traces/histogram2dcontour":256}],11:[function(require,module,exports){
+},{"../src/traces/histogram2dcontour":248}],11:[function(require,module,exports){
 /**
 * Copyright 2012-2016, Plotly, Inc.
 * All rights reserved.
@@ -11637,6 +11631,10 @@ process.off = noop;
 process.removeListener = noop;
 process.removeAllListeners = noop;
 process.emit = noop;
+process.prependListener = noop;
+process.prependOnceListener = noop;
+
+process.listeners = function (name) { return [] }
 
 process.binding = function (name) {
     throw new Error('process.binding is not supported');
@@ -21742,22 +21740,29 @@ function setupDragElement(rangeSlider, gd, axisOpts, opts) {
     var slideBox = rangeSlider.select('rect.' + constants.slideBoxClassName).node(),
         grabAreaMin = rangeSlider.select('rect.' + constants.grabAreaMinClassName).node(),
         grabAreaMax = rangeSlider.select('rect.' + constants.grabAreaMaxClassName).node();
+    var moveHandler = function(e) {
 
-    rangeSlider.on('mousedown', function() {
         var event = d3.event,
             target = event.target,
-            startX = event.clientX,
+            startX = event.clientX || event.touches[0].clientX,
             offsetX = startX - rangeSlider.node().getBoundingClientRect().left,
             minVal = opts.d2p(axisOpts.range[0]),
             maxVal = opts.d2p(axisOpts.range[1]);
 
         var dragCover = dragElement.coverSlip();
+        if(event.type==='touchstart') {
+           rangeSlider.on('touchmove', mouseMove);
+           rangeSlider.on('touchend', mouseUp);
+        } else {
+           dragCover.addEventListener('mousemove', mouseMove);
+           dragCover.addEventListener('mouseup', mouseUp);
+        }
 
-        dragCover.addEventListener('mousemove', mouseMove);
-        dragCover.addEventListener('mouseup', mouseUp);
+        function mouseMove(ev) {
 
-        function mouseMove(e) {
-            var delta = +e.clientX - startX;
+           var e = d3.event || ev;
+           var xcord = e.clientX || e.touches[0].clientX;
+            var delta = +xcord - startX;
             var pixelMin, pixelMax, cursor;
 
             switch(target) {
@@ -21791,20 +21796,31 @@ function setupDragElement(rangeSlider, gd, axisOpts, opts) {
                 pixelMax = pixelMin;
                 pixelMin = tmp;
             }
+            if(pixelMin<0) pixelMin=0;
+            if(pixelMax<0) pixelMax=0;
+            if(pixelMax>opts._width) pixelMax=opts._width;
+            if(pixelMin>opts._width) pixelMin=opts._width;
 
             opts._pixelMin = pixelMin;
             opts._pixelMax = pixelMax;
 
+
             setCursor(d3.select(dragCover), cursor);
-            setDataRange(rangeSlider, gd, axisOpts, opts);
+
+            setPixelRange(rangeSlider, gd, axisOpts, opts);
         }
 
         function mouseUp() {
-            dragCover.removeEventListener('mousemove', mouseMove);
-            dragCover.removeEventListener('mouseup', mouseUp);
+            setDataRange(rangeSlider, gd, axisOpts, opts);
+            rangeSlider.on('touchmove', null);
+            rangeSlider.on('touchend', null);
+            dragCover.removeEventListener('mousemove',mouseMove);
+            dragCover.removeEventListener('mouseup',mouseUp);
             Lib.removeElement(dragCover);
         }
-    });
+    };
+    rangeSlider.on('touchstart', moveHandler);
+    rangeSlider.on('mousedown', moveHandler);
 }
 
 function setDataRange(rangeSlider, gd, axisOpts, opts) {
@@ -21826,9 +21842,18 @@ function setPixelRange(rangeSlider, gd, axisOpts, opts) {
     function clamp(v) {
         return Lib.constrain(v, 0, opts._width);
     }
+    var pixelMin,pixelMax;
+    if(opts._pixelMin!==undefined&&opts._pixelMin!==null) {
+      pixelMin=opts._pixelMin;
+    } else {
+      pixelMin=clamp(opts.d2p(axisOpts.range[0]));
+    }
+    if(opts._pixelMax!==undefined&&opts._pixelMax!==null) {
+      pixelMax=opts._pixelMax;
+    } else {
+      pixelMax=clamp(opts.d2p(axisOpts.range[1]));
+    }
 
-    var pixelMin = clamp(opts.d2p(axisOpts.range[0])),
-        pixelMax = clamp(opts.d2p(axisOpts.range[1]));
 
     rangeSlider.select('rect.' + constants.slideBoxClassName)
         .attr('x', pixelMin)
@@ -21846,6 +21871,7 @@ function setPixelRange(rangeSlider, gd, axisOpts, opts) {
 
     rangeSlider.select('g.' + constants.grabberMaxClassName)
         .attr('transform', 'translate(' + pixelMax + ',0)');
+
 }
 
 function drawBg(rangeSlider, gd, axisOpts, opts) {
@@ -51057,7 +51083,7 @@ function iterateInterp2d(z, emptyPoints, overshoot) {
     return maxFractionalChange;
 }
 
-},{"../../components/colorscale/calc":37,"../../lib":121,"../../plots/cartesian/axes":147,"../../registry":187,"../histogram2d/calc":250,"./convert_column_xyz":232,"./has_columns":234,"./max_row_length":237,"fast-isnumeric":17}],231:[function(require,module,exports){
+},{"../../components/colorscale/calc":37,"../../lib":121,"../../plots/cartesian/axes":147,"../../registry":187,"../histogram2d/calc":242,"./convert_column_xyz":232,"./has_columns":234,"./max_row_length":237,"fast-isnumeric":17}],231:[function(require,module,exports){
 /**
 * Copyright 2012-2016, Plotly, Inc.
 * All rights reserved.
@@ -51969,510 +51995,6 @@ function isValidZ(z) {
 
 'use strict';
 
-var barAttrs = require('../bar/attributes');
-
-
-module.exports = {
-    x: {
-        valType: 'data_array',
-        
-    },
-    y: {
-        valType: 'data_array',
-        
-    },
-
-    text: barAttrs.text,
-    orientation: barAttrs.orientation,
-
-    histfunc: {
-        valType: 'enumerated',
-        values: ['count', 'sum', 'avg', 'min', 'max'],
-        
-        dflt: 'count',
-        
-    },
-    histnorm: {
-        valType: 'enumerated',
-        values: ['', 'percent', 'probability', 'density', 'probability density'],
-        dflt: '',
-        
-        
-    },
-
-    autobinx: {
-        valType: 'boolean',
-        dflt: true,
-        
-        
-    },
-    nbinsx: {
-        valType: 'integer',
-        min: 0,
-        dflt: 0,
-        
-        
-    },
-    xbins: makeBinsAttr('x'),
-
-    autobiny: {
-        valType: 'boolean',
-        dflt: true,
-        
-        
-    },
-    nbinsy: {
-        valType: 'integer',
-        min: 0,
-        dflt: 0,
-        
-        
-    },
-    ybins: makeBinsAttr('y'),
-
-    marker: barAttrs.marker,
-
-    _nestedModules: {
-        'error_y': 'ErrorBars',
-        'error_x': 'ErrorBars',
-        'marker.colorbar': 'Colorbar'
-    },
-
-    _deprecated: {
-        bardir: barAttrs._deprecated.bardir
-    }
-};
-
-function makeBinsAttr(axLetter) {
-    return {
-        start: {
-            valType: 'number',
-            dflt: null,
-            
-            
-        },
-        end: {
-            valType: 'number',
-            dflt: null,
-            
-            
-        },
-        size: {
-            valType: 'any', // for date axes
-            dflt: 1,
-            
-            
-        }
-    };
-}
-
-},{"../bar/attributes":197}],242:[function(require,module,exports){
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
-
-'use strict';
-
-
-module.exports = function doAvg(size, counts) {
-    var nMax = size.length,
-        total = 0;
-    for(var i = 0; i < nMax; i++) {
-        if(counts[i]) {
-            size[i] /= counts[i];
-            total += size[i];
-        }
-        else size[i] = null;
-    }
-    return total;
-};
-
-},{}],243:[function(require,module,exports){
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
-
-'use strict';
-
-
-module.exports = function handleBinDefaults(traceIn, traceOut, coerce, binDirections) {
-    coerce('histnorm');
-
-    binDirections.forEach(function(binDirection) {
-        // data being binned - note that even though it's a little weird,
-        // it's possible to have bins without data, if there's inferred data
-        var binstrt = coerce(binDirection + 'bins.start'),
-            binend = coerce(binDirection + 'bins.end'),
-            autobin = coerce('autobin' + binDirection, !(binstrt && binend));
-
-        if(autobin) coerce('nbins' + binDirection);
-        else coerce(binDirection + 'bins.size');
-    });
-
-    return traceOut;
-};
-
-},{}],244:[function(require,module,exports){
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
-
-'use strict';
-
-var isNumeric = require('fast-isnumeric');
-
-
-module.exports = {
-    count: function(n, i, size) {
-        size[n]++;
-        return 1;
-    },
-
-    sum: function(n, i, size, counterData) {
-        var v = counterData[i];
-        if(isNumeric(v)) {
-            v = Number(v);
-            size[n] += v;
-            return v;
-        }
-        return 0;
-    },
-
-    avg: function(n, i, size, counterData, counts) {
-        var v = counterData[i];
-        if(isNumeric(v)) {
-            v = Number(v);
-            size[n] += v;
-            counts[n]++;
-        }
-        return 0;
-    },
-
-    min: function(n, i, size, counterData) {
-        var v = counterData[i];
-        if(isNumeric(v)) {
-            v = Number(v);
-            if(!isNumeric(size[n])) {
-                size[n] = v;
-                return v;
-            }
-            else if(size[n] > v) {
-                size[n] = v;
-                return v - size[n];
-            }
-        }
-        return 0;
-    },
-
-    max: function(n, i, size, counterData) {
-        var v = counterData[i];
-        if(isNumeric(v)) {
-            v = Number(v);
-            if(!isNumeric(size[n])) {
-                size[n] = v;
-                return v;
-            }
-            else if(size[n] < v) {
-                size[n] = v;
-                return v - size[n];
-            }
-        }
-        return 0;
-    }
-};
-
-},{"fast-isnumeric":17}],245:[function(require,module,exports){
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
-
-'use strict';
-
-var isNumeric = require('fast-isnumeric');
-
-var Lib = require('../../lib');
-var Axes = require('../../plots/cartesian/axes');
-
-var binFunctions = require('./bin_functions');
-var normFunctions = require('./norm_functions');
-var doAvg = require('./average');
-
-
-module.exports = function calc(gd, trace) {
-    // ignore as much processing as possible (and including in autorange) if bar is not visible
-    if(trace.visible !== true) return;
-
-    // depending on orientation, set position and size axes and data ranges
-    // note: this logic for choosing orientation is duplicated in graph_obj->setstyles
-    var pos = [],
-        size = [],
-        i,
-        pa = Axes.getFromId(gd,
-            trace.orientation === 'h' ? (trace.yaxis || 'y') : (trace.xaxis || 'x')),
-        maindata = trace.orientation === 'h' ? 'y' : 'x',
-        counterdata = {x: 'y', y: 'x'}[maindata];
-
-    // prepare the raw data
-    var pos0 = pa.makeCalcdata(trace, maindata);
-    // calculate the bins
-    if((trace['autobin' + maindata] !== false) || !(maindata + 'bins' in trace)) {
-        trace[maindata + 'bins'] = Axes.autoBin(pos0, pa, trace['nbins' + maindata]);
-
-        // copy bin info back to the source data.
-        trace._input[maindata + 'bins'] = trace[maindata + 'bins'];
-    }
-
-    var binspec = trace[maindata + 'bins'],
-        allbins = typeof binspec.size === 'string',
-        bins = allbins ? [] : binspec,
-        // make the empty bin array
-        i2,
-        binend,
-        n,
-        inc = [],
-        counts = [],
-        total = 0,
-        norm = trace.histnorm,
-        func = trace.histfunc,
-        densitynorm = norm.indexOf('density') !== -1,
-        extremefunc = func === 'max' || func === 'min',
-        sizeinit = extremefunc ? null : 0,
-        binfunc = binFunctions.count,
-        normfunc = normFunctions[norm],
-        doavg = false,
-        rawCounterData;
-
-    if(Array.isArray(trace[counterdata]) && func !== 'count') {
-        rawCounterData = trace[counterdata];
-        doavg = func === 'avg';
-        binfunc = binFunctions[func];
-    }
-
-    // create the bins (and any extra arrays needed)
-    // assume more than 5000 bins is an error, so we don't crash the browser
-    i = binspec.start;
-    // decrease end a little in case of rounding errors
-    binend = binspec.end +
-        (binspec.start - Axes.tickIncrement(binspec.start, binspec.size)) / 1e6;
-    while(i < binend && pos.length < 5000) {
-        i2 = Axes.tickIncrement(i, binspec.size);
-        pos.push((i + i2) / 2);
-        size.push(sizeinit);
-        // nonuniform bins (like months) we need to search,
-        // rather than straight calculate the bin we're in
-        if(allbins) bins.push(i);
-        // nonuniform bins also need nonuniform normalization factors
-        if(densitynorm) inc.push(1 / (i2 - i));
-        if(doavg) counts.push(0);
-        i = i2;
-    }
-
-    var nMax = size.length;
-    // bin the data
-    for(i = 0; i < pos0.length; i++) {
-        n = Lib.findBin(pos0[i], bins);
-        if(n >= 0 && n < nMax) total += binfunc(n, i, size, rawCounterData, counts);
-    }
-
-    // average and/or normalize the data, if needed
-    if(doavg) total = doAvg(size, counts);
-    if(normfunc) normfunc(size, total, inc);
-
-    var serieslen = Math.min(pos.length, size.length),
-        cd = [],
-        firstNonzero = 0,
-        lastNonzero = serieslen - 1;
-    // look for empty bins at the ends to remove, so autoscale omits them
-    for(i = 0; i < serieslen; i++) {
-        if(size[i]) {
-            firstNonzero = i;
-            break;
-        }
-    }
-    for(i = serieslen - 1; i > firstNonzero; i--) {
-        if(size[i]) {
-            lastNonzero = i;
-            break;
-        }
-    }
-
-    // create the "calculated data" to plot
-    for(i = firstNonzero; i <= lastNonzero; i++) {
-        if((isNumeric(pos[i]) && isNumeric(size[i]))) {
-            cd.push({p: pos[i], s: size[i], b: 0});
-        }
-    }
-
-    return cd;
-};
-
-},{"../../lib":121,"../../plots/cartesian/axes":147,"./average":242,"./bin_functions":244,"./norm_functions":248,"fast-isnumeric":17}],246:[function(require,module,exports){
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
-
-'use strict';
-
-var Lib = require('../../lib');
-var Color = require('../../components/color');
-
-var handleBinDefaults = require('./bin_defaults');
-var handleStyleDefaults = require('../bar/style_defaults');
-var errorBarsSupplyDefaults = require('../../components/errorbars/defaults');
-var attributes = require('./attributes');
-
-
-module.exports = function supplyDefaults(traceIn, traceOut, defaultColor, layout) {
-    function coerce(attr, dflt) {
-        return Lib.coerce(traceIn, traceOut, attributes, attr, dflt);
-    }
-
-    var x = coerce('x'),
-        y = coerce('y');
-
-    coerce('text');
-
-    var orientation = coerce('orientation', (y && !x) ? 'h' : 'v'),
-        sample = traceOut[orientation === 'v' ? 'x' : 'y'];
-
-    if(!(sample && sample.length)) {
-        traceOut.visible = false;
-        return;
-    }
-
-    var hasAggregationData = traceOut[orientation === 'h' ? 'x' : 'y'];
-    if(hasAggregationData) coerce('histfunc');
-
-    var binDirections = (orientation === 'h') ? ['y'] : ['x'];
-    handleBinDefaults(traceIn, traceOut, coerce, binDirections);
-
-    handleStyleDefaults(traceIn, traceOut, coerce, defaultColor, layout);
-
-    // override defaultColor for error bars with defaultLine
-    errorBarsSupplyDefaults(traceIn, traceOut, Color.defaultLine, {axis: 'y'});
-    errorBarsSupplyDefaults(traceIn, traceOut, Color.defaultLine, {axis: 'x', inherit: 'y'});
-};
-
-},{"../../components/color":30,"../../components/errorbars/defaults":59,"../../lib":121,"../bar/style_defaults":208,"./attributes":241,"./bin_defaults":243}],247:[function(require,module,exports){
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
-
-'use strict';
-
-/**
- * Histogram has its own attribute, defaults and calc steps,
- * but uses bar's plot to display
- * and bar's setPositions for stacking and grouping
- */
-
-/**
- * histogram errorBarsOK is debatable, but it's put in for backward compat.
- * there are use cases for it - sqrt for a simple histogram works right now,
- * constant and % work but they're not so meaningful. I guess it could be cool
- * to allow quadrature combination of errors in summed histograms...
- */
-
-
-var Histogram = {};
-
-Histogram.attributes = require('./attributes');
-Histogram.layoutAttributes = require('../bar/layout_attributes');
-Histogram.supplyDefaults = require('./defaults');
-Histogram.supplyLayoutDefaults = require('../bar/layout_defaults');
-Histogram.calc = require('./calc');
-Histogram.setPositions = require('../bar/set_positions');
-Histogram.plot = require('../bar/plot');
-Histogram.style = require('../bar/style');
-Histogram.colorbar = require('../scatter/colorbar');
-Histogram.hoverPoints = require('../bar/hover');
-
-Histogram.moduleType = 'trace';
-Histogram.name = 'histogram';
-Histogram.basePlotModule = require('../../plots/cartesian');
-Histogram.categories = ['cartesian', 'bar', 'histogram', 'oriented', 'errorBarsOK', 'showLegend'];
-Histogram.meta = {
-    
-};
-
-module.exports = Histogram;
-
-},{"../../plots/cartesian":156,"../bar/hover":200,"../bar/layout_attributes":202,"../bar/layout_defaults":203,"../bar/plot":204,"../bar/set_positions":205,"../bar/style":207,"../scatter/colorbar":272,"./attributes":241,"./calc":245,"./defaults":246}],248:[function(require,module,exports){
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
-
-'use strict';
-
-
-module.exports = {
-    percent: function(size, total) {
-        var nMax = size.length,
-            norm = 100 / total;
-        for(var n = 0; n < nMax; n++) size[n] *= norm;
-    },
-    probability: function(size, total) {
-        var nMax = size.length;
-        for(var n = 0; n < nMax; n++) size[n] /= total;
-    },
-    density: function(size, total, inc, yinc) {
-        var nMax = size.length;
-        yinc = yinc || 1;
-        for(var n = 0; n < nMax; n++) size[n] *= inc[n] * yinc;
-    },
-    'probability density': function(size, total, inc, yinc) {
-        var nMax = size.length;
-        if(yinc) total /= yinc;
-        for(var n = 0; n < nMax; n++) size[n] *= inc[n] / total;
-    }
-};
-
-},{}],249:[function(require,module,exports){
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
-'use strict';
-
 var histogramAttrs = require('../histogram/attributes');
 var heatmapAttrs = require('../heatmap/attributes');
 var colorscaleAttrs = require('../../components/colorscale/attributes');
@@ -52516,7 +52038,7 @@ module.exports = extendFlat({},
     {autocolorscale: extendFlat({}, colorscaleAttrs.autocolorscale, {dflt: false})}
 );
 
-},{"../../components/colorscale/attributes":36,"../../lib/extend":118,"../heatmap/attributes":229,"../histogram/attributes":241}],250:[function(require,module,exports){
+},{"../../components/colorscale/attributes":36,"../../lib/extend":118,"../heatmap/attributes":229,"../histogram/attributes":249}],242:[function(require,module,exports){
 /**
 * Copyright 2012-2016, Plotly, Inc.
 * All rights reserved.
@@ -52682,7 +52204,7 @@ module.exports = function calc(gd, trace) {
     };
 };
 
-},{"../../lib":121,"../../plots/cartesian/axes":147,"../histogram/average":242,"../histogram/bin_functions":244,"../histogram/norm_functions":248}],251:[function(require,module,exports){
+},{"../../lib":121,"../../plots/cartesian/axes":147,"../histogram/average":250,"../histogram/bin_functions":252,"../histogram/norm_functions":256}],243:[function(require,module,exports){
 /**
 * Copyright 2012-2016, Plotly, Inc.
 * All rights reserved.
@@ -52720,7 +52242,7 @@ module.exports = function supplyDefaults(traceIn, traceOut, layout) {
     );
 };
 
-},{"../../components/colorscale/defaults":40,"../../lib":121,"./attributes":249,"./sample_defaults":253}],252:[function(require,module,exports){
+},{"../../components/colorscale/defaults":40,"../../lib":121,"./attributes":241,"./sample_defaults":245}],244:[function(require,module,exports){
 /**
 * Copyright 2012-2016, Plotly, Inc.
 * All rights reserved.
@@ -52753,7 +52275,7 @@ Histogram2D.meta = {
 
 module.exports = Histogram2D;
 
-},{"../../plots/cartesian":156,"../heatmap/calc":230,"../heatmap/colorbar":231,"../heatmap/hover":235,"../heatmap/plot":238,"../heatmap/style":239,"./attributes":249,"./defaults":251}],253:[function(require,module,exports){
+},{"../../plots/cartesian":156,"../heatmap/calc":230,"../heatmap/colorbar":231,"../heatmap/hover":235,"../heatmap/plot":238,"../heatmap/style":239,"./attributes":241,"./defaults":243}],245:[function(require,module,exports){
 /**
 * Copyright 2012-2016, Plotly, Inc.
 * All rights reserved.
@@ -52789,7 +52311,7 @@ module.exports = function handleSampleDefaults(traceIn, traceOut, coerce) {
     handleBinDefaults(traceIn, traceOut, coerce, binDirections);
 };
 
-},{"../histogram/bin_defaults":243}],254:[function(require,module,exports){
+},{"../histogram/bin_defaults":251}],246:[function(require,module,exports){
 /**
 * Copyright 2012-2016, Plotly, Inc.
 * All rights reserved.
@@ -52833,7 +52355,7 @@ module.exports = extendFlat({}, {
     colorscaleAttrs
 );
 
-},{"../../components/colorscale/attributes":36,"../../lib/extend":118,"../contour/attributes":219,"../histogram2d/attributes":249}],255:[function(require,module,exports){
+},{"../../components/colorscale/attributes":36,"../../lib/extend":118,"../contour/attributes":219,"../histogram2d/attributes":241}],247:[function(require,module,exports){
 /**
 * Copyright 2012-2016, Plotly, Inc.
 * All rights reserved.
@@ -52869,7 +52391,7 @@ module.exports = function supplyDefaults(traceIn, traceOut, defaultColor, layout
     handleStyleDefaults(traceIn, traceOut, coerce, layout);
 };
 
-},{"../../lib":121,"../contour/style_defaults":228,"../histogram2d/sample_defaults":253,"./attributes":254}],256:[function(require,module,exports){
+},{"../../lib":121,"../contour/style_defaults":228,"../histogram2d/sample_defaults":245,"./attributes":246}],248:[function(require,module,exports){
 /**
 * Copyright 2012-2016, Plotly, Inc.
 * All rights reserved.
@@ -52902,7 +52424,511 @@ Histogram2dContour.meta = {
 
 module.exports = Histogram2dContour;
 
-},{"../../plots/cartesian":156,"../contour/calc":220,"../contour/colorbar":221,"../contour/hover":223,"../contour/plot":226,"../contour/style":227,"./attributes":254,"./defaults":255}],257:[function(require,module,exports){
+},{"../../plots/cartesian":156,"../contour/calc":220,"../contour/colorbar":221,"../contour/hover":223,"../contour/plot":226,"../contour/style":227,"./attributes":246,"./defaults":247}],249:[function(require,module,exports){
+/**
+* Copyright 2012-2016, Plotly, Inc.
+* All rights reserved.
+*
+* This source code is licensed under the MIT license found in the
+* LICENSE file in the root directory of this source tree.
+*/
+
+'use strict';
+
+var barAttrs = require('../bar/attributes');
+
+
+module.exports = {
+    x: {
+        valType: 'data_array',
+        
+    },
+    y: {
+        valType: 'data_array',
+        
+    },
+
+    text: barAttrs.text,
+    orientation: barAttrs.orientation,
+
+    histfunc: {
+        valType: 'enumerated',
+        values: ['count', 'sum', 'avg', 'min', 'max'],
+        
+        dflt: 'count',
+        
+    },
+    histnorm: {
+        valType: 'enumerated',
+        values: ['', 'percent', 'probability', 'density', 'probability density'],
+        dflt: '',
+        
+        
+    },
+
+    autobinx: {
+        valType: 'boolean',
+        dflt: true,
+        
+        
+    },
+    nbinsx: {
+        valType: 'integer',
+        min: 0,
+        dflt: 0,
+        
+        
+    },
+    xbins: makeBinsAttr('x'),
+
+    autobiny: {
+        valType: 'boolean',
+        dflt: true,
+        
+        
+    },
+    nbinsy: {
+        valType: 'integer',
+        min: 0,
+        dflt: 0,
+        
+        
+    },
+    ybins: makeBinsAttr('y'),
+
+    marker: barAttrs.marker,
+
+    _nestedModules: {
+        'error_y': 'ErrorBars',
+        'error_x': 'ErrorBars',
+        'marker.colorbar': 'Colorbar'
+    },
+
+    _deprecated: {
+        bardir: barAttrs._deprecated.bardir
+    }
+};
+
+function makeBinsAttr(axLetter) {
+    return {
+        start: {
+            valType: 'number',
+            dflt: null,
+            
+            
+        },
+        end: {
+            valType: 'number',
+            dflt: null,
+            
+            
+        },
+        size: {
+            valType: 'any', // for date axes
+            dflt: 1,
+            
+            
+        }
+    };
+}
+
+},{"../bar/attributes":197}],250:[function(require,module,exports){
+/**
+* Copyright 2012-2016, Plotly, Inc.
+* All rights reserved.
+*
+* This source code is licensed under the MIT license found in the
+* LICENSE file in the root directory of this source tree.
+*/
+
+
+'use strict';
+
+
+module.exports = function doAvg(size, counts) {
+    var nMax = size.length,
+        total = 0;
+    for(var i = 0; i < nMax; i++) {
+        if(counts[i]) {
+            size[i] /= counts[i];
+            total += size[i];
+        }
+        else size[i] = null;
+    }
+    return total;
+};
+
+},{}],251:[function(require,module,exports){
+/**
+* Copyright 2012-2016, Plotly, Inc.
+* All rights reserved.
+*
+* This source code is licensed under the MIT license found in the
+* LICENSE file in the root directory of this source tree.
+*/
+
+
+'use strict';
+
+
+module.exports = function handleBinDefaults(traceIn, traceOut, coerce, binDirections) {
+    coerce('histnorm');
+
+    binDirections.forEach(function(binDirection) {
+        // data being binned - note that even though it's a little weird,
+        // it's possible to have bins without data, if there's inferred data
+        var binstrt = coerce(binDirection + 'bins.start'),
+            binend = coerce(binDirection + 'bins.end'),
+            autobin = coerce('autobin' + binDirection, !(binstrt && binend));
+
+        if(autobin) coerce('nbins' + binDirection);
+        else coerce(binDirection + 'bins.size');
+    });
+
+    return traceOut;
+};
+
+},{}],252:[function(require,module,exports){
+/**
+* Copyright 2012-2016, Plotly, Inc.
+* All rights reserved.
+*
+* This source code is licensed under the MIT license found in the
+* LICENSE file in the root directory of this source tree.
+*/
+
+
+'use strict';
+
+var isNumeric = require('fast-isnumeric');
+
+
+module.exports = {
+    count: function(n, i, size) {
+        size[n]++;
+        return 1;
+    },
+
+    sum: function(n, i, size, counterData) {
+        var v = counterData[i];
+        if(isNumeric(v)) {
+            v = Number(v);
+            size[n] += v;
+            return v;
+        }
+        return 0;
+    },
+
+    avg: function(n, i, size, counterData, counts) {
+        var v = counterData[i];
+        if(isNumeric(v)) {
+            v = Number(v);
+            size[n] += v;
+            counts[n]++;
+        }
+        return 0;
+    },
+
+    min: function(n, i, size, counterData) {
+        var v = counterData[i];
+        if(isNumeric(v)) {
+            v = Number(v);
+            if(!isNumeric(size[n])) {
+                size[n] = v;
+                return v;
+            }
+            else if(size[n] > v) {
+                size[n] = v;
+                return v - size[n];
+            }
+        }
+        return 0;
+    },
+
+    max: function(n, i, size, counterData) {
+        var v = counterData[i];
+        if(isNumeric(v)) {
+            v = Number(v);
+            if(!isNumeric(size[n])) {
+                size[n] = v;
+                return v;
+            }
+            else if(size[n] < v) {
+                size[n] = v;
+                return v - size[n];
+            }
+        }
+        return 0;
+    }
+};
+
+},{"fast-isnumeric":17}],253:[function(require,module,exports){
+/**
+* Copyright 2012-2016, Plotly, Inc.
+* All rights reserved.
+*
+* This source code is licensed under the MIT license found in the
+* LICENSE file in the root directory of this source tree.
+*/
+
+
+'use strict';
+
+var isNumeric = require('fast-isnumeric');
+
+var Lib = require('../../lib');
+var Axes = require('../../plots/cartesian/axes');
+
+var binFunctions = require('./bin_functions');
+var normFunctions = require('./norm_functions');
+var doAvg = require('./average');
+
+
+module.exports = function calc(gd, trace) {
+    // ignore as much processing as possible (and including in autorange) if bar is not visible
+    if(trace.visible !== true) return;
+
+    // depending on orientation, set position and size axes and data ranges
+    // note: this logic for choosing orientation is duplicated in graph_obj->setstyles
+    var pos = [],
+        size = [],
+        i,
+        pa = Axes.getFromId(gd,
+            trace.orientation === 'h' ? (trace.yaxis || 'y') : (trace.xaxis || 'x')),
+        maindata = trace.orientation === 'h' ? 'y' : 'x',
+        counterdata = {x: 'y', y: 'x'}[maindata];
+
+    // prepare the raw data
+    var pos0 = pa.makeCalcdata(trace, maindata);
+    // calculate the bins
+    if((trace['autobin' + maindata] !== false) || !(maindata + 'bins' in trace)) {
+        trace[maindata + 'bins'] = Axes.autoBin(pos0, pa, trace['nbins' + maindata]);
+
+        // copy bin info back to the source data.
+        trace._input[maindata + 'bins'] = trace[maindata + 'bins'];
+    }
+
+    var binspec = trace[maindata + 'bins'],
+        allbins = typeof binspec.size === 'string',
+        bins = allbins ? [] : binspec,
+        // make the empty bin array
+        i2,
+        binend,
+        n,
+        inc = [],
+        counts = [],
+        total = 0,
+        norm = trace.histnorm,
+        func = trace.histfunc,
+        densitynorm = norm.indexOf('density') !== -1,
+        extremefunc = func === 'max' || func === 'min',
+        sizeinit = extremefunc ? null : 0,
+        binfunc = binFunctions.count,
+        normfunc = normFunctions[norm],
+        doavg = false,
+        rawCounterData;
+
+    if(Array.isArray(trace[counterdata]) && func !== 'count') {
+        rawCounterData = trace[counterdata];
+        doavg = func === 'avg';
+        binfunc = binFunctions[func];
+    }
+
+    // create the bins (and any extra arrays needed)
+    // assume more than 5000 bins is an error, so we don't crash the browser
+    i = binspec.start;
+    // decrease end a little in case of rounding errors
+    binend = binspec.end +
+        (binspec.start - Axes.tickIncrement(binspec.start, binspec.size)) / 1e6;
+    while(i < binend && pos.length < 5000) {
+        i2 = Axes.tickIncrement(i, binspec.size);
+        pos.push((i + i2) / 2);
+        size.push(sizeinit);
+        // nonuniform bins (like months) we need to search,
+        // rather than straight calculate the bin we're in
+        if(allbins) bins.push(i);
+        // nonuniform bins also need nonuniform normalization factors
+        if(densitynorm) inc.push(1 / (i2 - i));
+        if(doavg) counts.push(0);
+        i = i2;
+    }
+
+    var nMax = size.length;
+    // bin the data
+    for(i = 0; i < pos0.length; i++) {
+        n = Lib.findBin(pos0[i], bins);
+        if(n >= 0 && n < nMax) total += binfunc(n, i, size, rawCounterData, counts);
+    }
+
+    // average and/or normalize the data, if needed
+    if(doavg) total = doAvg(size, counts);
+    if(normfunc) normfunc(size, total, inc);
+
+    var serieslen = Math.min(pos.length, size.length),
+        cd = [],
+        firstNonzero = 0,
+        lastNonzero = serieslen - 1;
+    // look for empty bins at the ends to remove, so autoscale omits them
+    for(i = 0; i < serieslen; i++) {
+        if(size[i]) {
+            firstNonzero = i;
+            break;
+        }
+    }
+    for(i = serieslen - 1; i > firstNonzero; i--) {
+        if(size[i]) {
+            lastNonzero = i;
+            break;
+        }
+    }
+
+    // create the "calculated data" to plot
+    for(i = firstNonzero; i <= lastNonzero; i++) {
+        if((isNumeric(pos[i]) && isNumeric(size[i]))) {
+            cd.push({p: pos[i], s: size[i], b: 0});
+        }
+    }
+
+    return cd;
+};
+
+},{"../../lib":121,"../../plots/cartesian/axes":147,"./average":250,"./bin_functions":252,"./norm_functions":256,"fast-isnumeric":17}],254:[function(require,module,exports){
+/**
+* Copyright 2012-2016, Plotly, Inc.
+* All rights reserved.
+*
+* This source code is licensed under the MIT license found in the
+* LICENSE file in the root directory of this source tree.
+*/
+
+
+'use strict';
+
+var Lib = require('../../lib');
+var Color = require('../../components/color');
+
+var handleBinDefaults = require('./bin_defaults');
+var handleStyleDefaults = require('../bar/style_defaults');
+var errorBarsSupplyDefaults = require('../../components/errorbars/defaults');
+var attributes = require('./attributes');
+
+
+module.exports = function supplyDefaults(traceIn, traceOut, defaultColor, layout) {
+    function coerce(attr, dflt) {
+        return Lib.coerce(traceIn, traceOut, attributes, attr, dflt);
+    }
+
+    var x = coerce('x'),
+        y = coerce('y');
+
+    coerce('text');
+
+    var orientation = coerce('orientation', (y && !x) ? 'h' : 'v'),
+        sample = traceOut[orientation === 'v' ? 'x' : 'y'];
+
+    if(!(sample && sample.length)) {
+        traceOut.visible = false;
+        return;
+    }
+
+    var hasAggregationData = traceOut[orientation === 'h' ? 'x' : 'y'];
+    if(hasAggregationData) coerce('histfunc');
+
+    var binDirections = (orientation === 'h') ? ['y'] : ['x'];
+    handleBinDefaults(traceIn, traceOut, coerce, binDirections);
+
+    handleStyleDefaults(traceIn, traceOut, coerce, defaultColor, layout);
+
+    // override defaultColor for error bars with defaultLine
+    errorBarsSupplyDefaults(traceIn, traceOut, Color.defaultLine, {axis: 'y'});
+    errorBarsSupplyDefaults(traceIn, traceOut, Color.defaultLine, {axis: 'x', inherit: 'y'});
+};
+
+},{"../../components/color":30,"../../components/errorbars/defaults":59,"../../lib":121,"../bar/style_defaults":208,"./attributes":249,"./bin_defaults":251}],255:[function(require,module,exports){
+/**
+* Copyright 2012-2016, Plotly, Inc.
+* All rights reserved.
+*
+* This source code is licensed under the MIT license found in the
+* LICENSE file in the root directory of this source tree.
+*/
+
+
+'use strict';
+
+/**
+ * Histogram has its own attribute, defaults and calc steps,
+ * but uses bar's plot to display
+ * and bar's setPositions for stacking and grouping
+ */
+
+/**
+ * histogram errorBarsOK is debatable, but it's put in for backward compat.
+ * there are use cases for it - sqrt for a simple histogram works right now,
+ * constant and % work but they're not so meaningful. I guess it could be cool
+ * to allow quadrature combination of errors in summed histograms...
+ */
+
+
+var Histogram = {};
+
+Histogram.attributes = require('./attributes');
+Histogram.layoutAttributes = require('../bar/layout_attributes');
+Histogram.supplyDefaults = require('./defaults');
+Histogram.supplyLayoutDefaults = require('../bar/layout_defaults');
+Histogram.calc = require('./calc');
+Histogram.setPositions = require('../bar/set_positions');
+Histogram.plot = require('../bar/plot');
+Histogram.style = require('../bar/style');
+Histogram.colorbar = require('../scatter/colorbar');
+Histogram.hoverPoints = require('../bar/hover');
+
+Histogram.moduleType = 'trace';
+Histogram.name = 'histogram';
+Histogram.basePlotModule = require('../../plots/cartesian');
+Histogram.categories = ['cartesian', 'bar', 'histogram', 'oriented', 'errorBarsOK', 'showLegend'];
+Histogram.meta = {
+    
+};
+
+module.exports = Histogram;
+
+},{"../../plots/cartesian":156,"../bar/hover":200,"../bar/layout_attributes":202,"../bar/layout_defaults":203,"../bar/plot":204,"../bar/set_positions":205,"../bar/style":207,"../scatter/colorbar":272,"./attributes":249,"./calc":253,"./defaults":254}],256:[function(require,module,exports){
+/**
+* Copyright 2012-2016, Plotly, Inc.
+* All rights reserved.
+*
+* This source code is licensed under the MIT license found in the
+* LICENSE file in the root directory of this source tree.
+*/
+
+
+'use strict';
+
+
+module.exports = {
+    percent: function(size, total) {
+        var nMax = size.length,
+            norm = 100 / total;
+        for(var n = 0; n < nMax; n++) size[n] *= norm;
+    },
+    probability: function(size, total) {
+        var nMax = size.length;
+        for(var n = 0; n < nMax; n++) size[n] /= total;
+    },
+    density: function(size, total, inc, yinc) {
+        var nMax = size.length;
+        yinc = yinc || 1;
+        for(var n = 0; n < nMax; n++) size[n] *= inc[n] * yinc;
+    },
+    'probability density': function(size, total, inc, yinc) {
+        var nMax = size.length;
+        if(yinc) total /= yinc;
+        for(var n = 0; n < nMax; n++) size[n] *= inc[n] / total;
+    }
+};
+
+},{}],257:[function(require,module,exports){
 /**
 * Copyright 2012-2016, Plotly, Inc.
 * All rights reserved.

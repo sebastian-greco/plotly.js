@@ -1,9 +1,3 @@
-/**
-* plotly.js (basic) v1.19.2
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-* Licensed under the MIT license
-*/
 (function(f){if(typeof exports==="object"&&typeof module!=="undefined"){module.exports=f()}else if(typeof define==="function"&&define.amd){define([],f)}else{var g;if(typeof window!=="undefined"){g=window}else if(typeof global!=="undefined"){g=global}else if(typeof self!=="undefined"){g=self}else{g=this}g.Plotly = f()}})(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 'use strict';
 
@@ -11539,6 +11533,10 @@ process.off = noop;
 process.removeListener = noop;
 process.removeAllListeners = noop;
 process.emit = noop;
+process.prependListener = noop;
+process.prependOnceListener = noop;
+
+process.listeners = function (name) { return [] }
 
 process.binding = function (name) {
     throw new Error('process.binding is not supported');
@@ -21644,22 +21642,29 @@ function setupDragElement(rangeSlider, gd, axisOpts, opts) {
     var slideBox = rangeSlider.select('rect.' + constants.slideBoxClassName).node(),
         grabAreaMin = rangeSlider.select('rect.' + constants.grabAreaMinClassName).node(),
         grabAreaMax = rangeSlider.select('rect.' + constants.grabAreaMaxClassName).node();
+    var moveHandler = function(e) {
 
-    rangeSlider.on('mousedown', function() {
         var event = d3.event,
             target = event.target,
-            startX = event.clientX,
+            startX = event.clientX || event.touches[0].clientX,
             offsetX = startX - rangeSlider.node().getBoundingClientRect().left,
             minVal = opts.d2p(axisOpts.range[0]),
             maxVal = opts.d2p(axisOpts.range[1]);
 
         var dragCover = dragElement.coverSlip();
+        if(event.type==='touchstart') {
+           rangeSlider.on('touchmove', mouseMove);
+           rangeSlider.on('touchend', mouseUp);
+        } else {
+           dragCover.addEventListener('mousemove', mouseMove);
+           dragCover.addEventListener('mouseup', mouseUp);
+        }
 
-        dragCover.addEventListener('mousemove', mouseMove);
-        dragCover.addEventListener('mouseup', mouseUp);
+        function mouseMove(ev) {
 
-        function mouseMove(e) {
-            var delta = +e.clientX - startX;
+           var e = d3.event || ev;
+           var xcord = e.clientX || e.touches[0].clientX;
+            var delta = +xcord - startX;
             var pixelMin, pixelMax, cursor;
 
             switch(target) {
@@ -21693,20 +21698,31 @@ function setupDragElement(rangeSlider, gd, axisOpts, opts) {
                 pixelMax = pixelMin;
                 pixelMin = tmp;
             }
+            if(pixelMin<0) pixelMin=0;
+            if(pixelMax<0) pixelMax=0;
+            if(pixelMax>opts._width) pixelMax=opts._width;
+            if(pixelMin>opts._width) pixelMin=opts._width;
 
             opts._pixelMin = pixelMin;
             opts._pixelMax = pixelMax;
 
+
             setCursor(d3.select(dragCover), cursor);
-            setDataRange(rangeSlider, gd, axisOpts, opts);
+
+            setPixelRange(rangeSlider, gd, axisOpts, opts);
         }
 
         function mouseUp() {
-            dragCover.removeEventListener('mousemove', mouseMove);
-            dragCover.removeEventListener('mouseup', mouseUp);
+            setDataRange(rangeSlider, gd, axisOpts, opts);
+            rangeSlider.on('touchmove', null);
+            rangeSlider.on('touchend', null);
+            dragCover.removeEventListener('mousemove',mouseMove);
+            dragCover.removeEventListener('mouseup',mouseUp);
             Lib.removeElement(dragCover);
         }
-    });
+    };
+    rangeSlider.on('touchstart', moveHandler);
+    rangeSlider.on('mousedown', moveHandler);
 }
 
 function setDataRange(rangeSlider, gd, axisOpts, opts) {
@@ -21728,9 +21744,18 @@ function setPixelRange(rangeSlider, gd, axisOpts, opts) {
     function clamp(v) {
         return Lib.constrain(v, 0, opts._width);
     }
+    var pixelMin,pixelMax;
+    if(opts._pixelMin!==undefined&&opts._pixelMin!==null) {
+      pixelMin=opts._pixelMin;
+    } else {
+      pixelMin=clamp(opts.d2p(axisOpts.range[0]));
+    }
+    if(opts._pixelMax!==undefined&&opts._pixelMax!==null) {
+      pixelMax=opts._pixelMax;
+    } else {
+      pixelMax=clamp(opts.d2p(axisOpts.range[1]));
+    }
 
-    var pixelMin = clamp(opts.d2p(axisOpts.range[0])),
-        pixelMax = clamp(opts.d2p(axisOpts.range[1]));
 
     rangeSlider.select('rect.' + constants.slideBoxClassName)
         .attr('x', pixelMin)
@@ -21748,6 +21773,7 @@ function setPixelRange(rangeSlider, gd, axisOpts, opts) {
 
     rangeSlider.select('g.' + constants.grabberMaxClassName)
         .attr('transform', 'translate(' + pixelMax + ',0)');
+
 }
 
 function drawBg(rangeSlider, gd, axisOpts, opts) {
